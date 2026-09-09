@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  changedExportedPaths,
   parseDifferentPaths,
   safeFormatFailureDetails,
 } from '../scripts/run-repository-verify.mjs'
@@ -25,4 +26,23 @@ test('format diagnostics expose only changed-path indices and unrelated count', 
       format_unrelated_count: 1,
     },
   )
+})
+
+test('format gate targets only changed files that crossed the public export boundary', () => {
+  const changedPaths = [
+    'docs/private.md',
+    'package.json',
+    'tests/example.spec.mjs',
+    'articles/private/body.note.md',
+  ]
+  const exportedPaths = [
+    'package.json',
+    'tests/example.spec.mjs',
+    'src/preexisting-unformatted.mjs',
+  ]
+
+  assert.deepEqual(changedExportedPaths(changedPaths, exportedPaths), [
+    'package.json',
+    'tests/example.spec.mjs',
+  ])
 })

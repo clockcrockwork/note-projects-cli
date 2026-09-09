@@ -17,8 +17,9 @@ const SAFE_COMMANDS = new Map([
     'npm run verify:public',
     [
       {
-        argv: ['./node_modules/.bin/prettier', '--list-different', '.'],
+        argv: ['./node_modules/.bin/prettier', '--list-different'],
         diagnostic: 'PUBLIC_FORMAT_CHECK_FAILED',
+        changedPathsOnly: true,
         captureFormatPaths: true,
       },
       { argv: ['npm', 'run', 'lint'], diagnostic: 'PUBLIC_LINT_FAILED' },
@@ -96,12 +97,14 @@ function isolatedDockerArgs({ image, mounts, workdir, argv, user = null }) {
 }
 
 export function parseDifferentPaths(stdout) {
-  return [...new Set(
-    stdout
-      .split(/\r?\n/)
-      .map((value) => value.trim().replace(/^\.\//, ''))
-      .filter(Boolean),
-  )].sort()
+  return [
+    ...new Set(
+      stdout
+        .split(/\r?\n/)
+        .map((value) => value.trim().replace(/^\.\//, ''))
+        .filter(Boolean),
+    ),
+  ].sort()
 }
 
 export function safeFormatFailureDetails(stdout, changedPaths) {
@@ -120,6 +123,11 @@ export function safeFormatFailureDetails(stdout, changedPaths) {
     format_changed_path_indices: [...new Set(formatChangedPathIndices)].sort((a, b) => a - b),
     format_unrelated_count: formatUnrelatedCount,
   }
+}
+
+export function changedExportedPaths(changedPaths, exportedPaths) {
+  const exported = new Set(exportedPaths)
+  return changedPaths.filter((path) => exported.has(path))
 }
 
 async function emit(result, exitCode = 0) {
@@ -319,17 +327,20 @@ async function main() {
 
     const hostUid = typeof process.getuid === 'function' ? String(process.getuid()) : '1000'
     const hostGid = typeof process.getgid === 'function' ? String(process.getgid()) : '1000'
+    const formatPaths = changedExportedPaths(resolved.changedPaths, exportPlan.include)
 
     phase = 'PUBLIC_EXECUTION'
     for (const command of expectedPublic) {
       const stages = SAFE_COMMANDS.get(command)
       for (const stage of stages) {
+        if (stage.changedPathsOnly && formatPaths.length === 0) continue
+        const argv = stage.changedPathsOnly ? [...stage.argv, ...formatPaths] : stage.argv
         const isolated = runCaptured(
           isolatedDockerArgs({
             image,
             mounts: [`${sourceRoot}:/workspace`],
             workdir: '/workspace',
-            argv: stage.argv,
+            argv,
             user: `${hostUid}:${hostGid}`,
           }),
           { timeout: 20 * 60_000, env: childEnv() },
