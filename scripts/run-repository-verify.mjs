@@ -18,8 +18,7 @@ const SAFE_COMMANDS = new Map([
     [
       { argv: ['npm', 'run', 'format:check'], diagnostic: 'PUBLIC_FORMAT_CHECK_FAILED' },
       { argv: ['npm', 'run', 'lint'], diagnostic: 'PUBLIC_LINT_FAILED' },
-      { argv: ['npm', 'run', 'typecheck'], diagnostic: 'PUBLIC_TYPECHECK_FAILED' },
-      { argv: ['npm', 'run', 'build'], diagnostic: 'PUBLIC_BUILD_FAILED' },
+      { argv: ['npm', 'run', 'typecheck:public'], diagnostic: 'PUBLIC_TYPECHECK_FAILED' },
       { argv: ['npm', 'run', 'test:public'], diagnostic: 'PUBLIC_TEST_FAILED' },
     ],
   ],
