@@ -3,9 +3,18 @@ import { createSign } from 'node:crypto'
 const API = 'https://api.github.com'
 const REPOSITORY = 'clockcrockwork/note-projects'
 const REPOSITORY_NAME = 'note-projects'
+const GET_ATTEMPTS = 3
 
 function b64url(value) {
   return Buffer.from(value).toString('base64url')
+}
+
+function retryDelayMs(attempt) {
+  return 250 * 2 ** (attempt - 1)
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function createAppJwt({ appId, privateKey, now = Math.floor(Date.now() / 1000) }) {
@@ -21,25 +30,60 @@ export function createAppJwt({ appId, privateKey, now = Math.floor(Date.now() / 
   return `${unsigned}.${sign.sign(key).toString('base64url')}`
 }
 
-async function api(path, { token, method = 'GET', body } = {}) {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      'User-Agent': 'note-projects-cli',
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
-  const text = await response.text()
-  if (!response.ok) throw new Error(`GITHUB_API_${response.status}:${method}:${path}`)
-  if (!text) return null
-  try {
-    return JSON.parse(text)
-  } catch {
-    throw new Error(`GITHUB_API_INVALID_JSON:${method}:${path}`)
+export function isRetryableGitHubGetStatus(status) {
+  return status === 429 || (status >= 500 && status <= 599)
+}
+
+export async function api(
+  path,
+  { token, method = 'GET', body, fetchImpl = fetch, sleepFn = sleep } = {},
+) {
+  const maxAttempts = method === 'GET' ? GET_ATTEMPTS : 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response
+    let text
+    try {
+      response = await fetchImpl(`${API}${path}`, {
+        method,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'User-Agent': 'note-projects-cli',
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      })
+      text = await response.text()
+    } catch {
+      if (method === 'GET' && attempt < maxAttempts) {
+        await sleepFn(retryDelayMs(attempt))
+        continue
+      }
+      throw new Error(`GITHUB_API_NETWORK:${method}:${path}`)
+    }
+
+    if (!response.ok) {
+      if (
+        method === 'GET' &&
+        isRetryableGitHubGetStatus(response.status) &&
+        attempt < maxAttempts
+      ) {
+        await sleepFn(retryDelayMs(attempt))
+        continue
+      }
+      throw new Error(`GITHUB_API_${response.status}:${method}:${path}`)
+    }
+
+    if (!text) return null
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error(`GITHUB_API_INVALID_JSON:${method}:${path}`)
+    }
   }
+
+  throw new Error(`GITHUB_API_RETRY_EXHAUSTED:${method}:${path}`)
 }
 
 export async function mintInstallationToken({ appId, privateKey, installationId, permissions }) {
