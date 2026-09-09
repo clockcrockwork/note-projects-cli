@@ -95,7 +95,7 @@ function isolatedDockerArgs({ image, mounts, workdir, argv, user = null }) {
   return args
 }
 
-function parseDifferentPaths(stdout) {
+export function parseDifferentPaths(stdout) {
   return [...new Set(
     stdout
       .split(/\r?\n/)
@@ -104,7 +104,7 @@ function parseDifferentPaths(stdout) {
   )].sort()
 }
 
-function safeFormatFailureDetails(stdout, changedPaths) {
+export function safeFormatFailureDetails(stdout, changedPaths) {
   const differentPaths = parseDifferentPaths(stdout)
   const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
   const formatChangedPathIndices = []
@@ -188,9 +188,6 @@ async function main() {
     await mkdir(trustedRoot, { recursive: true })
     await mkdir(sourceRoot, { recursive: true })
 
-    // One same-repository installation token is kept only by this trusted parent
-    // process. Private control/source code is never executed in this process while
-    // the credential is live; control modules run in no-network child containers.
     phase = 'ACCESS_TOKEN'
     accessToken = await mintInstallationToken({
       appId,
@@ -315,8 +312,6 @@ async function main() {
       await writeSafe(sourceRoot, path, bytes)
     }
 
-    // The credential boundary is complete before any exported private source is
-    // executed. The public validation containers receive neither token nor key.
     phase = 'ACCESS_REVOKE'
     await revokeInstallationToken(accessToken)
     accessToken = null
@@ -387,4 +382,6 @@ async function main() {
   }
 }
 
-main()
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main()
+}
