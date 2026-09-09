@@ -13,8 +13,20 @@ import {
 } from './github-app.mjs'
 
 const SAFE_COMMANDS = new Map([
-  ['npm run verify:public', ['npm', 'run', 'verify:public']],
-  ['npm run gas:build', ['npm', 'run', 'gas:build']],
+  [
+    'npm run verify:public',
+    [
+      { argv: ['npm', 'run', 'format:check'], diagnostic: 'PUBLIC_FORMAT_CHECK_FAILED' },
+      { argv: ['npm', 'run', 'lint'], diagnostic: 'PUBLIC_LINT_FAILED' },
+      { argv: ['npm', 'run', 'typecheck'], diagnostic: 'PUBLIC_TYPECHECK_FAILED' },
+      { argv: ['npm', 'run', 'build'], diagnostic: 'PUBLIC_BUILD_FAILED' },
+      { argv: ['npm', 'run', 'test:public'], diagnostic: 'PUBLIC_TEST_FAILED' },
+    ],
+  ],
+  [
+    'npm run gas:build',
+    [{ argv: ['npm', 'run', 'gas:build'], diagnostic: 'GAS_BUILD_FAILED' }],
+  ],
 ])
 
 function stableDiagnostic(error) {
@@ -67,7 +79,9 @@ async function emit(result, exitCode = 0) {
     if (result.source_sha) await appendFile(output, `source_sha=${result.source_sha}\n`)
     if (result.status) await appendFile(output, `status=${result.status}\n`)
   }
-  process.stdout.write(`repository-verify ${result.status}${result.source_sha ? ` ${result.source_sha}` : ''}${result.diagnostic ? ` ${result.diagnostic}` : ''}\n`)
+  process.stdout.write(
+    `repository-verify ${result.status}${result.source_sha ? ` ${result.source_sha}` : ''}${result.diagnostic ? ` ${result.diagnostic}` : ''}\n`,
+  )
   process.exitCode = exitCode
 }
 
@@ -141,7 +155,11 @@ async function main() {
     const bootstrapFiles = await Promise.all([
       fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/pr-validation-plan.mjs' }),
       fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/source-export-policy.mjs' }),
-      fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'config/public-execution/repository-verify.json' }),
+      fetchTextFile({
+        token: bootstrapToken,
+        sha: toolingSha,
+        path: 'config/public-execution/repository-verify.json',
+      }),
       fetchTextFile({ token: bootstrapToken, sha: sourceSha, path: 'package.json' }),
       fetchTextFile({ token: bootstrapToken, sha: sourceSha, path: 'package-lock.json' }),
     ])
@@ -184,7 +202,10 @@ async function main() {
     if (!install.ok) throw new Error('DEPENDENCY_INSTALL_FAILED')
 
     const image = process.env.NPR_NODE_IMAGE || 'node:22-bookworm'
-    const pull = runCaptured(['docker', 'pull', image], { timeout: 10 * 60_000, env: childEnv() })
+    const pull = runCaptured(['docker', 'pull', image], {
+      timeout: 10 * 60_000,
+      env: childEnv(),
+    })
     if (!pull.ok) throw new Error('NO_EGRESS_RUNTIME_PREPARE_FAILED')
 
     targetToken = await mintInstallationToken({
@@ -196,11 +217,21 @@ async function main() {
 
     const listing = await listCompleteTree({ token: targetToken, sha: sourceSha })
     const exportPolicy = await importTrusted(resolve(trustedRoot, 'source-export-policy.mjs'))
-    const manifest = parseJson(await readFile(resolve(trustedRoot, 'repository-verify.json')), 'TASK_MANIFEST_INVALID')
-    if (manifest?.schema_version !== 1 || manifest?.task !== 'repository-verify' || !Array.isArray(manifest.allow)) {
+    const manifest = parseJson(
+      await readFile(resolve(trustedRoot, 'repository-verify.json')),
+      'TASK_MANIFEST_INVALID',
+    )
+    if (
+      manifest?.schema_version !== 1 ||
+      manifest?.task !== 'repository-verify' ||
+      !Array.isArray(manifest.allow)
+    ) {
       throw new Error('TASK_MANIFEST_INVALID')
     }
-    const exportPlan = exportPolicy.planExport(listing, { allow: manifest.allow, deny: manifest.deny ?? [] })
+    const exportPlan = exportPolicy.planExport(listing, {
+      allow: manifest.allow,
+      deny: manifest.deny ?? [],
+    })
     if (!exportPlan.ok) throw new Error('SOURCE_EXPORT_UNSAFE_ENTRY')
 
     const entryByPath = new Map(listing.tree.map((entry) => [entry.path, entry]))
@@ -219,15 +250,40 @@ async function main() {
     const hostGid = typeof process.getgid === 'function' ? String(process.getgid()) : '1000'
 
     for (const command of expectedPublic) {
-      const argv = SAFE_COMMANDS.get(command)
-      const isolated = runCaptured([
-        'docker', 'run', '--rm', '--network', 'none', '--cap-drop', 'ALL',
-        '--security-opt', 'no-new-privileges', '--pids-limit', '512',
-        '--user', `${hostUid}:${hostGid}`, '-e', 'CI=1', '-e', 'NO_COLOR=1',
-        '-e', 'HOME=/tmp', '-v', `${sourceRoot}:/workspace`, '-w', '/workspace',
-        image, ...argv,
-      ], { timeout: 20 * 60_000, env: childEnv() })
-      if (!isolated.ok) throw new Error(command === 'npm run gas:build' ? 'GAS_BUILD_FAILED' : 'PUBLIC_VERIFY_FAILED')
+      const stages = SAFE_COMMANDS.get(command)
+      for (const stage of stages) {
+        const isolated = runCaptured(
+          [
+            'docker',
+            'run',
+            '--rm',
+            '--network',
+            'none',
+            '--cap-drop',
+            'ALL',
+            '--security-opt',
+            'no-new-privileges',
+            '--pids-limit',
+            '512',
+            '--user',
+            `${hostUid}:${hostGid}`,
+            '-e',
+            'CI=1',
+            '-e',
+            'NO_COLOR=1',
+            '-e',
+            'HOME=/tmp',
+            '-v',
+            `${sourceRoot}:/workspace`,
+            '-w',
+            '/workspace',
+            image,
+            ...stage.argv,
+          ],
+          { timeout: 20 * 60_000, env: childEnv() },
+        )
+        if (!isolated.ok) throw new Error(stage.diagnostic)
+      }
     }
 
     await emit({
@@ -243,18 +299,25 @@ async function main() {
       qualified_render_commands: plan.qualified_render_execution?.commands ?? [],
     })
   } catch (error) {
-    try { if (targetToken) await revokeInstallationToken(targetToken) } catch {}
-    try { if (bootstrapToken) await revokeInstallationToken(bootstrapToken) } catch {}
+    try {
+      if (targetToken) await revokeInstallationToken(targetToken)
+    } catch {}
+    try {
+      if (bootstrapToken) await revokeInstallationToken(bootstrapToken)
+    } catch {}
     const diagnostic = stableDiagnostic(error)
     const status = diagnostic === 'EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE' ? 'HOLD' : 'FAIL'
-    await emit({
-      schema_version: 1,
-      task: 'repository-verify',
-      status,
-      ...(toolingSha ? { tooling_sha: toolingSha } : {}),
-      ...(sourceSha ? { source_sha: sourceSha } : {}),
-      diagnostic,
-    }, status === 'HOLD' ? 3 : 1)
+    await emit(
+      {
+        schema_version: 1,
+        task: 'repository-verify',
+        status,
+        ...(toolingSha ? { tooling_sha: toolingSha } : {}),
+        ...(sourceSha ? { source_sha: sourceSha } : {}),
+        diagnostic,
+      },
+      status === 'HOLD' ? 3 : 1,
+    )
   } finally {
     await rm(root, { recursive: true, force: true }).catch(() => {})
   }
