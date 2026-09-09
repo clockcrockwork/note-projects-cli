@@ -35,6 +35,16 @@ export function parseSafeResult(raw) {
   if (Number.isSafeInteger(value.exported_file_count) && value.exported_file_count >= 0) {
     safe.exported_file_count = value.exported_file_count
   }
+  if (Array.isArray(value.format_changed_path_indices)) {
+    const max = safe.changed_path_count ?? Number.MAX_SAFE_INTEGER
+    const indices = value.format_changed_path_indices
+      .filter((item) => Number.isSafeInteger(item) && item >= 0 && item < max)
+      .sort((a, b) => a - b)
+    safe.format_changed_path_indices = [...new Set(indices)]
+  }
+  if (Number.isSafeInteger(value.format_unrelated_count) && value.format_unrelated_count >= 0) {
+    safe.format_unrelated_count = value.format_unrelated_count
+  }
   if (Array.isArray(value.public_commands)) {
     safe.public_commands = value.public_commands.filter((item) =>
       item === 'npm run verify:public' || item === 'npm run gas:build')
@@ -58,6 +68,14 @@ export function formatResultComment(raw, runUrl) {
   if (result.diagnostic) lines.push(`- diagnostic: ${code(result.diagnostic)}`)
   if (result.changed_path_count !== undefined) lines.push(`- changed paths: ${result.changed_path_count}`)
   if (result.exported_file_count !== undefined) lines.push(`- exported files: ${result.exported_file_count}`)
+  if (result.format_changed_path_indices !== undefined) {
+    lines.push(
+      `- format changed-path indices: ${result.format_changed_path_indices.length ? result.format_changed_path_indices.join(', ') : 'none'}`,
+    )
+  }
+  if (result.format_unrelated_count !== undefined) {
+    lines.push(`- unrelated format differences: ${result.format_unrelated_count}`)
+  }
   if (result.public_commands?.length) {
     lines.push(`- public commands: ${result.public_commands.map(code).join(', ')}`)
   }

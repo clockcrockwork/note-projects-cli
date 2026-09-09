@@ -6,13 +6,14 @@ const source = await readFile(new URL('../scripts/run-repository-verify.mjs', im
 
 test('public verify uses only the canonical public-safe no-network stages', () => {
   for (const command of [
-    "['npm', 'run', 'format:check']",
+    "['./node_modules/.bin/prettier', '--list-different', '.']",
     "['npm', 'run', 'lint']",
     "['npm', 'run', 'typecheck:public']",
     "['npm', 'run', 'test:public']",
   ]) {
     assert.match(source, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.doesNotMatch(source, /\['npm', 'run', 'format:check'\]/)
   assert.doesNotMatch(source, /\['npm', 'run', 'typecheck'\]/)
   assert.doesNotMatch(source, /\['npm', 'run', 'build'\]/)
 })

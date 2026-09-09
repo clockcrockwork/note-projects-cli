@@ -16,7 +16,11 @@ const SAFE_COMMANDS = new Map([
   [
     'npm run verify:public',
     [
-      { argv: ['npm', 'run', 'format:check'], diagnostic: 'PUBLIC_FORMAT_CHECK_FAILED' },
+      {
+        argv: ['./node_modules/.bin/prettier', '--list-different', '.'],
+        diagnostic: 'PUBLIC_FORMAT_CHECK_FAILED',
+        captureFormatPaths: true,
+      },
       { argv: ['npm', 'run', 'lint'], diagnostic: 'PUBLIC_LINT_FAILED' },
       { argv: ['npm', 'run', 'typecheck:public'], diagnostic: 'PUBLIC_TYPECHECK_FAILED' },
       { argv: ['npm', 'run', 'test:public'], diagnostic: 'PUBLIC_TEST_FAILED' },
@@ -91,6 +95,33 @@ function isolatedDockerArgs({ image, mounts, workdir, argv, user = null }) {
   return args
 }
 
+export function parseDifferentPaths(stdout) {
+  return [...new Set(
+    stdout
+      .split(/\r?\n/)
+      .map((value) => value.trim().replace(/^\.\//, ''))
+      .filter(Boolean),
+  )].sort()
+}
+
+export function safeFormatFailureDetails(stdout, changedPaths) {
+  const differentPaths = parseDifferentPaths(stdout)
+  const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
+  const formatChangedPathIndices = []
+  let formatUnrelatedCount = 0
+
+  for (const path of differentPaths) {
+    const index = changedIndex.get(path)
+    if (index === undefined) formatUnrelatedCount += 1
+    else formatChangedPathIndices.push(index)
+  }
+
+  return {
+    format_changed_path_indices: [...new Set(formatChangedPathIndices)].sort((a, b) => a - b),
+    format_unrelated_count: formatUnrelatedCount,
+  }
+}
+
 async function emit(result, exitCode = 0) {
   const safe = JSON.stringify(result)
   const output = process.env.GITHUB_OUTPUT
@@ -139,6 +170,7 @@ async function main() {
   let toolingSha = null
   let accessToken = null
   let phase = 'REQUEST'
+  let safeFailureDetails = {}
   const root = resolve(process.env.RUNNER_TEMP || tmpdir(), `note-projects-cli-${process.pid}`)
   const trustedRoot = resolve(root, 'trusted')
   const sourceRoot = resolve(root, 'source')
@@ -156,9 +188,6 @@ async function main() {
     await mkdir(trustedRoot, { recursive: true })
     await mkdir(sourceRoot, { recursive: true })
 
-    // One same-repository installation token is kept only by this trusted parent
-    // process. Private control/source code is never executed in this process while
-    // the credential is live; control modules run in no-network child containers.
     phase = 'ACCESS_TOKEN'
     accessToken = await mintInstallationToken({
       appId,
@@ -283,8 +312,6 @@ async function main() {
       await writeSafe(sourceRoot, path, bytes)
     }
 
-    // The credential boundary is complete before any exported private source is
-    // executed. The public validation containers receive neither token nor key.
     phase = 'ACCESS_REVOKE'
     await revokeInstallationToken(accessToken)
     accessToken = null
@@ -307,7 +334,12 @@ async function main() {
           }),
           { timeout: 20 * 60_000, env: childEnv() },
         )
-        if (!isolated.ok) throw new Error(stage.diagnostic)
+        if (!isolated.ok) {
+          if (stage.captureFormatPaths) {
+            safeFailureDetails = safeFormatFailureDetails(isolated.stdout, resolved.changedPaths)
+          }
+          throw new Error(stage.diagnostic)
+        }
       }
     }
 
@@ -341,6 +373,7 @@ async function main() {
         ...(sourceSha ? { source_sha: sourceSha } : {}),
         diagnostic,
         phase,
+        ...safeFailureDetails,
       },
       status === 'HOLD' ? 3 : 1,
     )
@@ -349,4 +382,6 @@ async function main() {
   }
 }
 
-main()
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main()
+}
