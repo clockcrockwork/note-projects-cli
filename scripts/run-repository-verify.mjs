@@ -33,6 +33,8 @@ const SAFE_COMMANDS = new Map([
   ],
 ])
 
+const MAX_LINE_DIFF_INPUT = 2000
+
 function stableDiagnostic(error) {
   const value = error instanceof Error ? error.message : String(error)
   const first = value.split(':', 1)[0]
@@ -154,17 +156,84 @@ export function safeLineChangeSpan(beforeText, afterText) {
   }
 }
 
+export function safeLineChangeSpans(beforeText, afterText) {
+  const before = textLines(beforeText)
+  const after = textLines(afterText)
+  if (before.length > MAX_LINE_DIFF_INPUT || after.length > MAX_LINE_DIFF_INPUT) {
+    const fallback = safeLineChangeSpan(beforeText, afterText)
+    return fallback ? [fallback] : []
+  }
+
+  const width = after.length + 1
+  const table = new Uint16Array((before.length + 1) * width)
+  const at = (i, j) => i * width + j
+
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      table[at(i, j)] =
+        before[i] === after[j]
+          ? table[at(i + 1, j + 1)] + 1
+          : Math.max(table[at(i + 1, j)], table[at(i, j + 1)])
+    }
+  }
+
+  const spans = []
+  let i = 0
+  let j = 0
+  let hunkStartBefore = null
+  let hunkStartAfter = null
+
+  const closeHunk = () => {
+    if (hunkStartBefore === null || hunkStartAfter === null) return
+    spans.push({
+      start_line: hunkStartBefore + 1,
+      old_line_count: i - hunkStartBefore,
+      new_line_count: j - hunkStartAfter,
+    })
+    hunkStartBefore = null
+    hunkStartAfter = null
+  }
+
+  while (i < before.length || j < after.length) {
+    if (i < before.length && j < after.length && before[i] === after[j]) {
+      closeHunk()
+      i += 1
+      j += 1
+      continue
+    }
+
+    if (hunkStartBefore === null) {
+      hunkStartBefore = i
+      hunkStartAfter = j
+    }
+
+    if (i >= before.length) {
+      j += 1
+    } else if (j >= after.length) {
+      i += 1
+    } else if (table[at(i + 1, j)] >= table[at(i, j + 1)]) {
+      i += 1
+    } else {
+      j += 1
+    }
+  }
+  closeHunk()
+  return spans
+}
+
 export function safeFormatChangedSpans(entries, changedPaths) {
   const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
   const spans = []
   for (const entry of entries) {
     const index = changedIndex.get(entry.path)
     if (index === undefined) continue
-    const span = safeLineChangeSpan(entry.before, entry.after)
-    if (!span) continue
-    spans.push({ changed_path_index: index, ...span })
+    for (const span of safeLineChangeSpans(entry.before, entry.after)) {
+      spans.push({ changed_path_index: index, ...span })
+    }
   }
-  return spans.sort((a, b) => a.changed_path_index - b.changed_path_index)
+  return spans.sort(
+    (a, b) => a.changed_path_index - b.changed_path_index || a.start_line - b.start_line,
+  )
 }
 
 export function changedExportedPaths(changedPaths, exportedPaths) {
