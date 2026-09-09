@@ -70,7 +70,7 @@ function childEnv(extra = {}) {
   }
 }
 
-function isolatedDockerArgs({ image, mounts, workdir, argv }) {
+function isolatedDockerArgs({ image, mounts, workdir, argv, user = null }) {
   const args = [
     'docker',
     'run',
@@ -83,13 +83,9 @@ function isolatedDockerArgs({ image, mounts, workdir, argv }) {
     'no-new-privileges',
     '--pids-limit',
     '512',
-    '-e',
-    'CI=1',
-    '-e',
-    'NO_COLOR=1',
-    '-e',
-    'HOME=/tmp',
   ]
+  if (user) args.push('--user', user)
+  args.push('-e', 'CI=1', '-e', 'NO_COLOR=1', '-e', 'HOME=/tmp')
   for (const mount of mounts) args.push('-v', mount)
   args.push('-w', workdir, image, ...argv)
   return args
@@ -306,8 +302,9 @@ async function main() {
             image,
             mounts: [`${sourceRoot}:/workspace`],
             workdir: '/workspace',
-            argv: [...stage.argv],
-          }).toSpliced(14, 0, '--user', `${hostUid}:${hostGid}`),
+            argv: stage.argv,
+            user: `${hostUid}:${hostGid}`,
+          }),
           { timeout: 20 * 60_000, env: childEnv() },
         )
         if (!isolated.ok) throw new Error(stage.diagnostic)
