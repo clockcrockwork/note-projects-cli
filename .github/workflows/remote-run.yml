@@ -1,0 +1,70 @@
+name: Typed remote run
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions: {}
+
+concurrency:
+  group: remote-run-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      request_json: ${{ steps.parse.outputs.request_json }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: parse
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_json="$(node scripts/parse-request.mjs "$GITHUB_EVENT_PATH")"
+          printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+
+  repository_verify:
+    needs: authorize
+    if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task == 'repository-verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: private-source-read
+    permissions:
+      contents: read
+    outputs:
+      result_json: ${{ steps.run.outputs.result_json }}
+      source_sha: ${{ steps.run.outputs.source_sha }}
+      status: ${{ steps.run.outputs.status }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: run
+        env:
+          REQUEST_JSON: ${{ needs.authorize.outputs.request_json }}
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+        run: node scripts/run-repository-verify.mjs
+
+  unactivated_typed_task:
+    needs: authorize
+    if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task != 'repository-verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - shell: bash
+        run: |
+          echo 'HOLD: TYPED_TASK_NOT_ACTIVATED'
+          exit 3
