@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import {
   fetchBlob,
   fetchTextFile,
@@ -70,6 +70,27 @@ function childEnv(extra = {}) {
   }
 }
 
+function isolatedDockerArgs({ image, mounts, workdir, argv, user = null }) {
+  const args = [
+    'docker',
+    'run',
+    '--rm',
+    '--network',
+    'none',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--pids-limit',
+    '512',
+  ]
+  if (user) args.push('--user', user)
+  args.push('-e', 'CI=1', '-e', 'NO_COLOR=1', '-e', 'HOME=/tmp')
+  for (const mount of mounts) args.push('-v', mount)
+  args.push('-w', workdir, image, ...argv)
+  return args
+}
+
 async function emit(result, exitCode = 0) {
   const safe = JSON.stringify(result)
   const output = process.env.GITHUB_OUTPUT
@@ -105,27 +126,23 @@ async function writeSafe(root, path, bytes) {
   await writeFile(destination, bytes)
 }
 
-function parseJson(bytes, diagnostic) {
+function parseJson(value, diagnostic) {
   try {
-    return JSON.parse(bytes.toString('utf8'))
+    return JSON.parse(Buffer.isBuffer(value) ? value.toString('utf8') : String(value))
   } catch {
     throw new Error(diagnostic)
   }
 }
 
-async function importTrusted(path) {
-  return import(`${pathToFileURL(path).href}?v=${Date.now()}`)
-}
-
 async function main() {
   let sourceSha = null
   let toolingSha = null
-  let bootstrapToken = null
-  let targetToken = null
+  let accessToken = null
   let phase = 'REQUEST'
   const root = resolve(process.env.RUNNER_TEMP || tmpdir(), `note-projects-cli-${process.pid}`)
   const trustedRoot = resolve(root, 'trusted')
   const sourceRoot = resolve(root, 'source')
+  const runnerRoot = fileURLToPath(new URL('..', import.meta.url))
 
   try {
     const request = parseRequest()
@@ -139,8 +156,11 @@ async function main() {
     await mkdir(trustedRoot, { recursive: true })
     await mkdir(sourceRoot, { recursive: true })
 
-    phase = 'BOOTSTRAP_TOKEN'
-    bootstrapToken = await mintInstallationToken({
+    // One same-repository installation token is kept only by this trusted parent
+    // process. Private control/source code is never executed in this process while
+    // the credential is live; control modules run in no-network child containers.
+    phase = 'ACCESS_TOKEN'
+    accessToken = await mintInstallationToken({
       appId,
       privateKey,
       installationId,
@@ -149,7 +169,7 @@ async function main() {
 
     phase = 'SOURCE_RESOLVE'
     const resolved = await resolveSource({
-      token: bootstrapToken,
+      token: accessToken,
       source: request.source,
       pullRequest: request.pull_request,
     })
@@ -158,15 +178,15 @@ async function main() {
 
     phase = 'BOOTSTRAP_FETCH'
     const bootstrapFiles = await Promise.all([
-      fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/pr-validation-plan.mjs' }),
-      fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/source-export-policy.mjs' }),
+      fetchTextFile({ token: accessToken, sha: toolingSha, path: 'tools/pr-validation-plan.mjs' }),
+      fetchTextFile({ token: accessToken, sha: toolingSha, path: 'tools/source-export-policy.mjs' }),
       fetchTextFile({
-        token: bootstrapToken,
+        token: accessToken,
         sha: toolingSha,
         path: 'config/public-execution/repository-verify.json',
       }),
-      fetchTextFile({ token: bootstrapToken, sha: sourceSha, path: 'package.json' }),
-      fetchTextFile({ token: bootstrapToken, sha: sourceSha, path: 'package-lock.json' }),
+      fetchTextFile({ token: accessToken, sha: sourceSha, path: 'package.json' }),
+      fetchTextFile({ token: accessToken, sha: sourceSha, path: 'package-lock.json' }),
     ])
 
     phase = 'BOOTSTRAP_WRITE'
@@ -176,14 +196,32 @@ async function main() {
     await writeSafe(sourceRoot, 'package.json', bootstrapFiles[3])
     await writeSafe(sourceRoot, 'package-lock.json', bootstrapFiles[4])
 
-    phase = 'BOOTSTRAP_REVOKE'
-    await revokeInstallationToken(bootstrapToken)
-    bootstrapToken = null
+    phase = 'RUNTIME_PREPARE'
+    const image = process.env.NPR_NODE_IMAGE || 'node:22-bookworm'
+    const pull = runCaptured(['docker', 'pull', image], {
+      timeout: 10 * 60_000,
+      env: childEnv(),
+    })
+    if (!pull.ok) throw new Error('NO_EGRESS_RUNTIME_PREPARE_FAILED')
 
-    phase = 'PLAN'
-    const planner = await importTrusted(resolve(trustedRoot, 'pr-validation-plan.mjs'))
-    const plan = planner.planPrValidation(resolved.changedPaths)
+    phase = 'PLAN_ISOLATED'
+    const plannerRun = runCaptured(
+      isolatedDockerArgs({
+        image,
+        mounts: [`${trustedRoot}:/trusted:ro`],
+        workdir: '/trusted',
+        argv: ['node', '/trusted/pr-validation-plan.mjs', ...resolved.changedPaths],
+      }),
+      { timeout: 2 * 60_000, env: childEnv() },
+    )
+    if (!plannerRun.ok) throw new Error('VALIDATION_PLAN_EXECUTION_FAILED')
+    const plan = parseJson(plannerRun.stdout, 'VALIDATION_PLAN_INVALID')
+
     if (plan.generic_repository_validation === 'NOT_REQUIRED') {
+      phase = 'ACCESS_REVOKE'
+      await revokeInstallationToken(accessToken)
+      accessToken = null
+      delete process.env.NPR_APP_PRIVATE_KEY
       await emit({
         schema_version: 1,
         task: 'repository-verify',
@@ -210,55 +248,46 @@ async function main() {
     })
     if (!install.ok) throw new Error('DEPENDENCY_INSTALL_FAILED')
 
-    phase = 'RUNTIME_PREPARE'
-    const image = process.env.NPR_NODE_IMAGE || 'node:22-bookworm'
-    const pull = runCaptured(['docker', 'pull', image], {
-      timeout: 10 * 60_000,
-      env: childEnv(),
-    })
-    if (!pull.ok) throw new Error('NO_EGRESS_RUNTIME_PREPARE_FAILED')
-
-    phase = 'TARGET_TOKEN'
-    targetToken = await mintInstallationToken({
-      appId,
-      privateKey,
-      installationId,
-      permissions: { contents: 'read' },
-    })
-
     phase = 'TREE_LIST'
-    const listing = await listCompleteTree({ token: targetToken, sha: sourceSha })
-    phase = 'EXPORT_PLAN'
-    const exportPolicy = await importTrusted(resolve(trustedRoot, 'source-export-policy.mjs'))
-    const manifest = parseJson(
-      await readFile(resolve(trustedRoot, 'repository-verify.json')),
-      'TASK_MANIFEST_INVALID',
+    const listing = await listCompleteTree({ token: accessToken, sha: sourceSha })
+    await writeFile(resolve(trustedRoot, 'tree-listing.json'), JSON.stringify(listing))
+
+    phase = 'EXPORT_PLAN_ISOLATED'
+    const exportRun = runCaptured(
+      isolatedDockerArgs({
+        image,
+        mounts: [`${runnerRoot}:/runner:ro`, `${trustedRoot}:/trusted:ro`],
+        workdir: '/runner',
+        argv: [
+          'node',
+          '/runner/scripts/evaluate-export-plan.mjs',
+          '/trusted/tree-listing.json',
+          '/trusted/repository-verify.json',
+          '/trusted/source-export-policy.mjs',
+        ],
+      }),
+      { timeout: 2 * 60_000, env: childEnv() },
     )
-    if (
-      manifest?.schema_version !== 1 ||
-      manifest?.task !== 'repository-verify' ||
-      !Array.isArray(manifest.allow)
-    ) {
-      throw new Error('TASK_MANIFEST_INVALID')
+    if (!exportRun.ok) throw new Error('EXPORT_CONTROL_EXECUTION_FAILED')
+    const exportPlan = parseJson(exportRun.stdout, 'EXPORT_CONTROL_RESULT_INVALID')
+    if (!exportPlan?.ok || !Array.isArray(exportPlan.include)) {
+      throw new Error(exportPlan?.diagnostic || 'SOURCE_EXPORT_UNSAFE_ENTRY')
     }
-    const exportPlan = exportPolicy.planExport(listing, {
-      allow: manifest.allow,
-      deny: manifest.deny ?? [],
-    })
-    if (!exportPlan.ok) throw new Error('SOURCE_EXPORT_UNSAFE_ENTRY')
 
     phase = 'EXPORT_FETCH'
     const entryByPath = new Map(listing.tree.map((entry) => [entry.path, entry]))
     for (const path of exportPlan.include) {
       const entry = entryByPath.get(path)
       if (!entry?.sha || entry.type !== 'blob') throw new Error('SOURCE_EXPORT_ENTRY_INVALID')
-      const bytes = await fetchBlob({ token: targetToken, blobSha: entry.sha })
+      const bytes = await fetchBlob({ token: accessToken, blobSha: entry.sha })
       await writeSafe(sourceRoot, path, bytes)
     }
 
-    phase = 'TARGET_REVOKE'
-    await revokeInstallationToken(targetToken)
-    targetToken = null
+    // The credential boundary is complete before any exported private source is
+    // executed. The public validation containers receive neither token nor key.
+    phase = 'ACCESS_REVOKE'
+    await revokeInstallationToken(accessToken)
+    accessToken = null
     delete process.env.NPR_APP_PRIVATE_KEY
 
     const hostUid = typeof process.getuid === 'function' ? String(process.getuid()) : '1000'
@@ -269,33 +298,13 @@ async function main() {
       const stages = SAFE_COMMANDS.get(command)
       for (const stage of stages) {
         const isolated = runCaptured(
-          [
-            'docker',
-            'run',
-            '--rm',
-            '--network',
-            'none',
-            '--cap-drop',
-            'ALL',
-            '--security-opt',
-            'no-new-privileges',
-            '--pids-limit',
-            '512',
-            '--user',
-            `${hostUid}:${hostGid}`,
-            '-e',
-            'CI=1',
-            '-e',
-            'NO_COLOR=1',
-            '-e',
-            'HOME=/tmp',
-            '-v',
-            `${sourceRoot}:/workspace`,
-            '-w',
-            '/workspace',
+          isolatedDockerArgs({
             image,
-            ...stage.argv,
-          ],
+            mounts: [`${sourceRoot}:/workspace`],
+            workdir: '/workspace',
+            argv: stage.argv,
+            user: `${hostUid}:${hostGid}`,
+          }),
           { timeout: 20 * 60_000, env: childEnv() },
         )
         if (!isolated.ok) throw new Error(stage.diagnostic)
@@ -317,10 +326,7 @@ async function main() {
     })
   } catch (error) {
     try {
-      if (targetToken) await revokeInstallationToken(targetToken)
-    } catch {}
-    try {
-      if (bootstrapToken) await revokeInstallationToken(bootstrapToken)
+      if (accessToken) await revokeInstallationToken(accessToken)
     } catch {}
     const rawDiagnostic = stableDiagnostic(error)
     const diagnostic =

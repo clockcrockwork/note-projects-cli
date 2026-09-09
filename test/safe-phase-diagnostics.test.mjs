@@ -14,11 +14,13 @@ test('phase taxonomy is coarse and never carries private content', () => {
   for (const phase of [
     'REQUEST',
     'SOURCE_RESOLVE',
-    'DEPENDENCY_INSTALL',
     'RUNTIME_PREPARE',
+    'PLAN_ISOLATED',
+    'DEPENDENCY_INSTALL',
     'TREE_LIST',
-    'EXPORT_PLAN',
+    'EXPORT_PLAN_ISOLATED',
     'EXPORT_FETCH',
+    'ACCESS_REVOKE',
     'PUBLIC_EXECUTION',
   ]) {
     assert.match(source, new RegExp(`'${phase}'`))
