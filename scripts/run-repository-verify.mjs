@@ -125,6 +125,48 @@ export function safeFormatFailureDetails(stdout, changedPaths) {
   }
 }
 
+function textLines(value) {
+  return String(value).replaceAll('\r\n', '\n').split('\n')
+}
+
+export function safeLineChangeSpan(beforeText, afterText) {
+  const before = textLines(beforeText)
+  const after = textLines(afterText)
+  let prefix = 0
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) {
+    prefix += 1
+  }
+  if (prefix === before.length && prefix === after.length) return null
+
+  let suffix = 0
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1
+  }
+
+  return {
+    start_line: prefix + 1,
+    old_line_count: before.length - prefix - suffix,
+    new_line_count: after.length - prefix - suffix,
+  }
+}
+
+export function safeFormatChangedSpans(entries, changedPaths) {
+  const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
+  const spans = []
+  for (const entry of entries) {
+    const index = changedIndex.get(entry.path)
+    if (index === undefined) continue
+    const span = safeLineChangeSpan(entry.before, entry.after)
+    if (!span) continue
+    spans.push({ changed_path_index: index, ...span })
+  }
+  return spans.sort((a, b) => a.changed_path_index - b.changed_path_index)
+}
+
 export function changedExportedPaths(changedPaths, exportedPaths) {
   const exported = new Set(exportedPaths)
   return changedPaths.filter((path) => exported.has(path))
@@ -157,12 +199,21 @@ function parseRequest() {
   return request
 }
 
-async function writeSafe(root, path, bytes) {
+function safeResolvedPath(root, path) {
   const destination = resolve(root, path)
   const prefix = resolve(root) + sep
   if (!destination.startsWith(prefix)) throw new Error('EXPORT_DESTINATION_ESCAPE')
+  return destination
+}
+
+async function writeSafe(root, path, bytes) {
+  const destination = safeResolvedPath(root, path)
   await mkdir(dirname(destination), { recursive: true })
   await writeFile(destination, bytes)
+}
+
+async function readSafeText(root, path) {
+  return readFile(safeResolvedPath(root, path), 'utf8')
 }
 
 function parseJson(value, diagnostic) {
@@ -347,7 +398,43 @@ async function main() {
         )
         if (!isolated.ok) {
           if (stage.captureFormatPaths) {
+            const differentPaths = parseDifferentPaths(isolated.stdout)
             safeFailureDetails = safeFormatFailureDetails(isolated.stdout, resolved.changedPaths)
+            const formatPathSet = new Set(formatPaths)
+            const differentChangedPaths = differentPaths.filter((path) => formatPathSet.has(path))
+            if (differentChangedPaths.length) {
+              const beforeEntries = await Promise.all(
+                differentChangedPaths.map(async (path) => ({
+                  path,
+                  before: await readSafeText(sourceRoot, path),
+                })),
+              )
+              const formatWrite = runCaptured(
+                isolatedDockerArgs({
+                  image,
+                  mounts: [`${sourceRoot}:/workspace`],
+                  workdir: '/workspace',
+                  argv: ['./node_modules/.bin/prettier', '--write', ...differentChangedPaths],
+                  user: `${hostUid}:${hostGid}`,
+                }),
+                { timeout: 2 * 60_000, env: childEnv() },
+              )
+              if (formatWrite.ok) {
+                const formattedEntries = await Promise.all(
+                  beforeEntries.map(async (entry) => ({
+                    ...entry,
+                    after: await readSafeText(sourceRoot, entry.path),
+                  })),
+                )
+                safeFailureDetails = {
+                  ...safeFailureDetails,
+                  format_changed_spans: safeFormatChangedSpans(
+                    formattedEntries,
+                    resolved.changedPaths,
+                  ),
+                }
+              }
+            }
           }
           throw new Error(stage.diagnostic)
         }
