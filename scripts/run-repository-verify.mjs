@@ -122,20 +122,24 @@ async function main() {
   let toolingSha = null
   let bootstrapToken = null
   let targetToken = null
+  let phase = 'REQUEST'
   const root = resolve(process.env.RUNNER_TEMP || tmpdir(), `note-projects-cli-${process.pid}`)
   const trustedRoot = resolve(root, 'trusted')
   const sourceRoot = resolve(root, 'source')
 
   try {
     const request = parseRequest()
+    phase = 'CREDENTIALS'
     const appId = requiredEnv('NPR_APP_ID')
     const privateKey = requiredEnv('NPR_APP_PRIVATE_KEY')
     const installationId = requiredEnv('NPR_APP_INSTALLATION_ID')
 
+    phase = 'WORKSPACE_INIT'
     await rm(root, { recursive: true, force: true })
     await mkdir(trustedRoot, { recursive: true })
     await mkdir(sourceRoot, { recursive: true })
 
+    phase = 'BOOTSTRAP_TOKEN'
     bootstrapToken = await mintInstallationToken({
       appId,
       privateKey,
@@ -143,6 +147,7 @@ async function main() {
       permissions: { contents: 'read', pull_requests: 'read' },
     })
 
+    phase = 'SOURCE_RESOLVE'
     const resolved = await resolveSource({
       token: bootstrapToken,
       source: request.source,
@@ -151,6 +156,7 @@ async function main() {
     toolingSha = resolved.toolingSha
     sourceSha = resolved.sourceSha
 
+    phase = 'BOOTSTRAP_FETCH'
     const bootstrapFiles = await Promise.all([
       fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/pr-validation-plan.mjs' }),
       fetchTextFile({ token: bootstrapToken, sha: toolingSha, path: 'tools/source-export-policy.mjs' }),
@@ -163,15 +169,18 @@ async function main() {
       fetchTextFile({ token: bootstrapToken, sha: sourceSha, path: 'package-lock.json' }),
     ])
 
+    phase = 'BOOTSTRAP_WRITE'
     await writeSafe(trustedRoot, 'pr-validation-plan.mjs', bootstrapFiles[0])
     await writeSafe(trustedRoot, 'source-export-policy.mjs', bootstrapFiles[1])
     await writeSafe(trustedRoot, 'repository-verify.json', bootstrapFiles[2])
     await writeSafe(sourceRoot, 'package.json', bootstrapFiles[3])
     await writeSafe(sourceRoot, 'package-lock.json', bootstrapFiles[4])
 
+    phase = 'BOOTSTRAP_REVOKE'
     await revokeInstallationToken(bootstrapToken)
     bootstrapToken = null
 
+    phase = 'PLAN'
     const planner = await importTrusted(resolve(trustedRoot, 'pr-validation-plan.mjs'))
     const plan = planner.planPrValidation(resolved.changedPaths)
     if (plan.generic_repository_validation === 'NOT_REQUIRED') {
@@ -193,6 +202,7 @@ async function main() {
       if (!SAFE_COMMANDS.has(command)) throw new Error('VALIDATION_PLAN_COMMAND_REJECTED')
     }
 
+    phase = 'DEPENDENCY_INSTALL'
     const install = runCaptured(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
       cwd: sourceRoot,
       timeout: 15 * 60_000,
@@ -200,6 +210,7 @@ async function main() {
     })
     if (!install.ok) throw new Error('DEPENDENCY_INSTALL_FAILED')
 
+    phase = 'RUNTIME_PREPARE'
     const image = process.env.NPR_NODE_IMAGE || 'node:22-bookworm'
     const pull = runCaptured(['docker', 'pull', image], {
       timeout: 10 * 60_000,
@@ -207,6 +218,7 @@ async function main() {
     })
     if (!pull.ok) throw new Error('NO_EGRESS_RUNTIME_PREPARE_FAILED')
 
+    phase = 'TARGET_TOKEN'
     targetToken = await mintInstallationToken({
       appId,
       privateKey,
@@ -214,7 +226,9 @@ async function main() {
       permissions: { contents: 'read' },
     })
 
+    phase = 'TREE_LIST'
     const listing = await listCompleteTree({ token: targetToken, sha: sourceSha })
+    phase = 'EXPORT_PLAN'
     const exportPolicy = await importTrusted(resolve(trustedRoot, 'source-export-policy.mjs'))
     const manifest = parseJson(
       await readFile(resolve(trustedRoot, 'repository-verify.json')),
@@ -233,6 +247,7 @@ async function main() {
     })
     if (!exportPlan.ok) throw new Error('SOURCE_EXPORT_UNSAFE_ENTRY')
 
+    phase = 'EXPORT_FETCH'
     const entryByPath = new Map(listing.tree.map((entry) => [entry.path, entry]))
     for (const path of exportPlan.include) {
       const entry = entryByPath.get(path)
@@ -241,6 +256,7 @@ async function main() {
       await writeSafe(sourceRoot, path, bytes)
     }
 
+    phase = 'TARGET_REVOKE'
     await revokeInstallationToken(targetToken)
     targetToken = null
     delete process.env.NPR_APP_PRIVATE_KEY
@@ -248,6 +264,7 @@ async function main() {
     const hostUid = typeof process.getuid === 'function' ? String(process.getuid()) : '1000'
     const hostGid = typeof process.getgid === 'function' ? String(process.getgid()) : '1000'
 
+    phase = 'PUBLIC_EXECUTION'
     for (const command of expectedPublic) {
       const stages = SAFE_COMMANDS.get(command)
       for (const stage of stages) {
@@ -285,6 +302,7 @@ async function main() {
       }
     }
 
+    phase = 'PASS_EMIT'
     await emit({
       schema_version: 1,
       task: 'repository-verify',
@@ -304,7 +322,9 @@ async function main() {
     try {
       if (bootstrapToken) await revokeInstallationToken(bootstrapToken)
     } catch {}
-    const diagnostic = stableDiagnostic(error)
+    const rawDiagnostic = stableDiagnostic(error)
+    const diagnostic =
+      rawDiagnostic === 'UNCLASSIFIED_FAILURE' ? `RUNNER_${phase}_FAILED` : rawDiagnostic
     const status = diagnostic === 'EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE' ? 'HOLD' : 'FAIL'
     await emit(
       {
@@ -314,6 +334,7 @@ async function main() {
         ...(toolingSha ? { tooling_sha: toolingSha } : {}),
         ...(sourceSha ? { source_sha: sourceSha } : {}),
         diagnostic,
+        phase,
       },
       status === 'HOLD' ? 3 : 1,
     )
