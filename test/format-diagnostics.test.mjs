@@ -7,6 +7,7 @@ import {
   safeFormatChangedSpans,
   safeFormatFailureDetails,
   safeLineChangeSpan,
+  safeLineChangeSpans,
 } from '../scripts/run-repository-verify.mjs'
 
 test('prettier list-different output is normalized without exposing content', () => {
@@ -39,6 +40,19 @@ test('line change span reports only numeric shape, never changed content', () =>
   assert.equal(safeLineChangeSpan('same\n', 'same\n'), null)
 })
 
+test('line change spans keep separated formatting edits as separate numeric hunks', () => {
+  assert.deepEqual(
+    safeLineChangeSpans(
+      'same-1\nold-a\nsame-2\nold-b\nold-c\nsame-3\n',
+      'same-1\nnew-a\nnew-a-2\nsame-2\nnew-b\nsame-3\n',
+    ),
+    [
+      { start_line: 2, old_line_count: 1, new_line_count: 2 },
+      { start_line: 4, old_line_count: 2, new_line_count: 1 },
+    ],
+  )
+})
+
 test('format change spans use changed-path indices instead of file names', () => {
   const changedPaths = ['private/a.mjs', 'private/b.mjs', 'private/c.mjs']
   assert.deepEqual(
@@ -46,8 +60,8 @@ test('format change spans use changed-path indices instead of file names', () =>
       [
         {
           path: 'private/c.mjs',
-          before: 'one\ntwo\nthree\n',
-          after: 'one\nTWO\nTHREE\n',
+          before: 'same\nold-1\nanchor\nold-2\n',
+          after: 'same\nnew-1\nanchor\nnew-2\n',
         },
         {
           path: 'unrelated.mjs',
@@ -61,8 +75,14 @@ test('format change spans use changed-path indices instead of file names', () =>
       {
         changed_path_index: 2,
         start_line: 2,
-        old_line_count: 2,
-        new_line_count: 2,
+        old_line_count: 1,
+        new_line_count: 1,
+      },
+      {
+        changed_path_index: 2,
+        start_line: 4,
+        old_line_count: 1,
+        new_line_count: 1,
       },
     ],
   )
