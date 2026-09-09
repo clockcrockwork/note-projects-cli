@@ -4,6 +4,8 @@ const REPOSITORY = 'clockcrockwork/note-projects-cli'
 const STATUSES = new Set(['PASS', 'FAIL', 'HOLD', 'NOT_REQUIRED'])
 const SHA_RE = /^[0-9a-f]{40}$/
 const DIAGNOSTIC_RE = /^[A-Z0-9_]+$/
+const MAX_SAFE_LINE_NUMBER = 1_000_000
+const MAX_FORMAT_SPANS = 20
 
 function code(value) {
   return `\`${String(value).replaceAll('`', '')}\``
@@ -42,6 +44,34 @@ export function parseSafeResult(raw) {
       .sort((a, b) => a - b)
     safe.format_changed_path_indices = [...new Set(indices)]
   }
+  if (Array.isArray(value.format_changed_spans)) {
+    const max = safe.changed_path_count ?? Number.MAX_SAFE_INTEGER
+    safe.format_changed_spans = value.format_changed_spans
+      .filter(
+        (item) =>
+          item &&
+          Number.isSafeInteger(item.changed_path_index) &&
+          item.changed_path_index >= 0 &&
+          item.changed_path_index < max &&
+          Number.isSafeInteger(item.start_line) &&
+          item.start_line >= 1 &&
+          item.start_line <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.old_line_count) &&
+          item.old_line_count >= 0 &&
+          item.old_line_count <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.new_line_count) &&
+          item.new_line_count >= 0 &&
+          item.new_line_count <= MAX_SAFE_LINE_NUMBER,
+      )
+      .map((item) => ({
+        changed_path_index: item.changed_path_index,
+        start_line: item.start_line,
+        old_line_count: item.old_line_count,
+        new_line_count: item.new_line_count,
+      }))
+      .sort((a, b) => a.changed_path_index - b.changed_path_index || a.start_line - b.start_line)
+      .slice(0, MAX_FORMAT_SPANS)
+  }
   if (Number.isSafeInteger(value.format_unrelated_count) && value.format_unrelated_count >= 0) {
     safe.format_unrelated_count = value.format_unrelated_count
   }
@@ -71,6 +101,16 @@ export function formatResultComment(raw, runUrl) {
   if (result.format_changed_path_indices !== undefined) {
     lines.push(
       `- format changed-path indices: ${result.format_changed_path_indices.length ? result.format_changed_path_indices.join(', ') : 'none'}`,
+    )
+  }
+  if (result.format_changed_spans?.length) {
+    lines.push(
+      `- format change spans: ${result.format_changed_spans
+        .map(
+          (span) =>
+            `#${span.changed_path_index}@L${span.start_line} ${span.old_line_count}->${span.new_line_count}`,
+        )
+        .join('; ')}`,
     )
   }
   if (result.format_unrelated_count !== undefined) {
