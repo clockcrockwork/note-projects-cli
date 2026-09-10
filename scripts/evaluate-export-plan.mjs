@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
+const TASKS = new Set(['repository-verify', 'publication-preview'])
+
 function fail(code) {
   process.stdout.write(JSON.stringify({ ok: false, diagnostic: code }))
   process.exitCode = 2
@@ -21,7 +23,7 @@ async function main() {
 
   if (
     manifest?.schema_version !== 1 ||
-    manifest?.task !== 'repository-verify' ||
+    !TASKS.has(manifest?.task) ||
     !Array.isArray(manifest.allow)
   ) {
     return fail('TASK_MANIFEST_INVALID')
