@@ -19,6 +19,7 @@ const TARGET_ID_RE = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
 const SHA_RE = /^[0-9a-f]{40}$/
 const DEPLOYMENT_ID_RE = /^dpl_[A-Za-z0-9]+$/
 const URL_RE = /^https:\/\/[A-Za-z0-9.-]+\.vercel\.app\/?$/
+const CONTAINER_ID_RE = /^[0-9a-f]{12,64}$/
 
 function stableDiagnostic(error) {
   const value = error instanceof Error ? error.message : String(error)
@@ -83,6 +84,78 @@ function isolatedDockerArgs({ image, mounts, workdir, argv, env = {} }) {
   for (const mount of mounts) args.push('-v', mount)
   args.push('-w', workdir, image, ...argv)
   return args
+}
+
+export function isolatedDockerCreateArgs({ image, workdir, argv, env = {} }) {
+  const args = [
+    'docker',
+    'create',
+    '--network',
+    'none',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--pids-limit',
+    '512',
+    '-e',
+    'CI=1',
+    '-e',
+    'NO_COLOR=1',
+    '-e',
+    'HOME=/tmp',
+  ]
+  for (const [name, value] of Object.entries(env)) args.push('-e', `${name}=${value}`)
+  args.push('-w', workdir, image, ...argv)
+  return args
+}
+
+function runCopiedWorkspaceBuild({ image, workspaceRoot, target, sourceSha }) {
+  const created = runCaptured(
+    isolatedDockerCreateArgs({
+      image,
+      workdir: '/workspace',
+      argv: ['node', 'tools/build-publication-preview.mjs', target],
+      env: { SOURCE_SHA: sourceSha },
+    }),
+    { timeout: 2 * 60_000, env: childEnv() },
+  )
+  if (!created.ok) return created
+
+  const containerId = created.stdout.trim()
+  if (!CONTAINER_ID_RE.test(containerId)) {
+    return {
+      ok: false,
+      stdout: created.stdout,
+      stderr: 'PUBLICATION_PREVIEW_CONTAINER_ID_INVALID',
+    }
+  }
+
+  try {
+    const copiedIn = runCaptured(
+      ['docker', 'cp', `${workspaceRoot}/.`, `${containerId}:/workspace`],
+      { timeout: 5 * 60_000, env: childEnv() },
+    )
+    if (!copiedIn.ok) return copiedIn
+
+    const build = runCaptured(['docker', 'start', '-a', containerId], {
+      timeout: 5 * 60_000,
+      env: childEnv(),
+    })
+    if (!build.ok) return build
+
+    const copiedOut = runCaptured(
+      ['docker', 'cp', `${containerId}:/workspace/artifacts`, workspaceRoot],
+      { timeout: 2 * 60_000, env: childEnv() },
+    )
+    if (!copiedOut.ok) return copiedOut
+    return build
+  } finally {
+    runCaptured(['docker', 'rm', '-f', containerId], {
+      timeout: 60_000,
+      env: childEnv(),
+    })
+  }
 }
 
 function parseRequest() {
@@ -403,16 +476,12 @@ async function main() {
     delete process.env.NPR_APP_PRIVATE_KEY
 
     phase = 'PREVIEW_BUILD'
-    const build = runCaptured(
-      isolatedDockerArgs({
-        image,
-        mounts: [`${workspaceRoot}:/workspace`],
-        workdir: '/workspace',
-        argv: ['node', 'tools/build-publication-preview.mjs', request.target],
-        env: { SOURCE_SHA: sourceSha },
-      }),
-      { timeout: 5 * 60_000, env: childEnv() },
-    )
+    const build = runCopiedWorkspaceBuild({
+      image,
+      workspaceRoot,
+      target: request.target,
+      sourceSha,
+    })
     if (!build.ok) throw new Error('PUBLICATION_PREVIEW_BUILD_FAILED')
 
     phase = 'PAYLOAD_ISOLATE'
