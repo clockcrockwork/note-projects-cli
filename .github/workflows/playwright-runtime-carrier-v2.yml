@@ -1,0 +1,89 @@
+name: Playwright runtime carrier v2
+
+# PLAYWRIGHT_RUNTIME_CARRIER_V2: a public, regenerable OSS-only runtime
+# carrier containing the complete Chromium pair required by Playwright 1.63.0.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - '.github/workflows/playwright-runtime-carrier-v2.yml'
+      - 'scripts/verify-playwright-runtime-v2.mjs'
+      - 'scripts/playwright-runtime-v2-tar.mjs'
+      - 'scripts/playwright-runtime-v2-manifest.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-runtime-carrier-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_VERSION: 1.63.0
+  ARTIFACT_NAME: playwright-runtime-1.63.0-linux-x64-chromium-complete
+  PAYLOAD_FILENAME: playwright-runtime-1.63.0-linux-x64-chromium-complete.tar.gz
+  BROWSER_CACHE_DIRECTORY: pw-browsers
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - name: Install pinned Playwright
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pw-install" "$RUNNER_TEMP/$BROWSER_CACHE_DIRECTORY"
+          cd "$RUNNER_TEMP/pw-install"
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+      - name: Install complete matching Chromium runtime
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/pw-install/node_modules/.bin/playwright" install chromium
+      - name: Verify both runtime trees and launch modes
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+          PW_INSTALL_DIR: ${{ runner.temp }}/pw-install
+          BROWSERS_JSON_PATH: ${{ runner.temp }}/pw-install/node_modules/playwright-core/browsers.json
+          RUNTIME_REPORT_PATH: ${{ runner.temp }}/playwright-runtime-v2-report.json
+        run: node scripts/verify-playwright-runtime-v2.mjs
+      - name: Build permission-preserving payload archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          tar --numeric-owner --owner=0 --group=0 -czf "$RUNNER_TEMP/$PAYLOAD_FILENAME" \
+            "$BROWSER_CACHE_DIRECTORY"/chromium-* \
+            "$BROWSER_CACHE_DIRECTORY"/chromium_headless_shell-*
+      - name: Verify tar trees and streamed executable identities
+        shell: bash
+        env:
+          RUNTIME_REPORT_PATH: ${{ runner.temp }}/playwright-runtime-v2-report.json
+        run: node scripts/playwright-runtime-v2-tar.mjs verify "$RUNNER_TEMP/$PAYLOAD_FILENAME" "$BROWSER_CACHE_DIRECTORY" "$RUNTIME_REPORT_PATH"
+      - name: Build v2 manifest
+        shell: bash
+        env:
+          PAYLOAD_PATH: ${{ runner.temp }}/${{ env.PAYLOAD_FILENAME }}
+          RUNTIME_REPORT_PATH: ${{ runner.temp }}/playwright-runtime-v2-report.json
+          WORKFLOW_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RUNNER_LABEL: ubuntu-24.04
+        run: node scripts/playwright-runtime-v2-manifest.mjs "$RUNNER_TEMP/playwright-runtime-manifest.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ runner.temp }}/${{ env.PAYLOAD_FILENAME }}
+            ${{ runner.temp }}/playwright-runtime-manifest.json
+          if-no-files-found: error
+          retention-days: 30
