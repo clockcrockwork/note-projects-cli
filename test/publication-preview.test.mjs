@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { findArticleRoot, safePublicResult } from '../scripts/run-publication-preview.mjs'
+import {
+  findArticleRoot,
+  isolatedDockerCreateArgs,
+  safePublicResult,
+} from '../scripts/run-publication-preview.mjs'
 import {
   formatPreviewResultComment,
   parseSafePreviewResult,
@@ -35,6 +39,29 @@ test('findArticleRoot fails closed on ambiguity and absence', () => {
     /PUBLICATION_PREVIEW_TARGET_AMBIGUOUS/,
   )
   assert.throws(() => findArticleRoot({ tree: [] }, 'ART-012'), /PUBLICATION_PREVIEW_TARGET_NOT_FOUND/)
+})
+
+test('preview build container is created no-egress without a host bind mount', () => {
+  const args = isolatedDockerCreateArgs({
+    image: 'node:22-bookworm',
+    workdir: '/workspace',
+    argv: ['node', 'tools/build-publication-preview.mjs', 'ART-012'],
+    env: { SOURCE_SHA: 'a'.repeat(40) },
+  })
+
+  assert.deepEqual(args.slice(0, 4), ['docker', 'create', '--network', 'none'])
+  assert.equal(args.includes('--cap-drop'), true)
+  assert.equal(args.includes('no-new-privileges'), true)
+  assert.equal(args.includes('-v'), false)
+  assert.equal(args.includes('SOURCE_SHA=' + 'a'.repeat(40)), true)
+  assert.deepEqual(args.slice(-5), [
+    '-w',
+    '/workspace',
+    'node:22-bookworm',
+    'node',
+    'tools/build-publication-preview.mjs',
+    'ART-012',
+  ].slice(-5))
 })
 
 test('safe public preview result never carries protected URLs or deployment IDs', () => {
