@@ -481,7 +481,7 @@ async function main() {
         appId,
         privateKey,
         installationId,
-        permissions: { issues: 'write' },
+        permissions: { pull_requests: 'write' },
       })
       try {
         phase = 'PRIVATE_COMMENT_UPSERT'
