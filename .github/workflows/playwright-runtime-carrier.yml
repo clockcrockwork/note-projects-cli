@@ -1,0 +1,121 @@
+name: Playwright runtime carrier
+
+# PLAYWRIGHT_RUNTIME_CARRIER_V1
+#
+# Downloads the Playwright-managed OSS Chromium headless shell matching a
+# pinned Playwright version, packages it as a permission-preserving tar.gz,
+# and uploads it as a public GitHub Actions artifact so a Playwright-based
+# runtime elsewhere (which cannot reach the Playwright CDN directly) can
+# retrieve it through an authenticated GitHub UI/API instead.
+#
+# This is a REGENERABLE PUBLIC RUNTIME CARRIER, not a durable canonical
+# artifact store. It reads no private repository and carries no
+# private/paid payload; see AGENTS.md and README.md.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - '.github/workflows/playwright-runtime-carrier.yml'
+      - 'scripts/playwright-runtime-manifest.mjs'
+      - 'scripts/playwright-runtime-tar.mjs'
+      - 'scripts/verify-playwright-runtime.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-runtime-carrier-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_VERSION: 1.63.0
+  ARTIFACT_NAME: playwright-runtime-1.63.0-linux-x64-headless-shell
+  PAYLOAD_FILENAME: playwright-runtime-1.63.0-linux-x64-headless-shell.tar.gz
+  BROWSER_CACHE_DIRECTORY: pw-browsers
+
+jobs:
+  build:
+    # Runner image is pinned, not ubuntu-latest: the carried payload's
+    # identity (which Chromium build satisfies Playwright 1.63.0) must not
+    # depend on which runner label happened to resolve to on the day this
+    # ran. See "Runner" in the design contract for this component.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+
+      - name: Install pinned Playwright into an isolated directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pw-install" "$RUNNER_TEMP/$BROWSER_CACHE_DIRECTORY"
+          cd "$RUNNER_TEMP/pw-install"
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+
+      - name: Install matching Chromium headless shell
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/pw-install/node_modules/.bin/playwright" install --only-shell chromium
+
+      - name: Verify runtime (version, files, launch)
+        id: verify
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+          PW_INSTALL_DIR: ${{ runner.temp }}/pw-install
+        run: node scripts/verify-playwright-runtime.mjs
+
+      - name: Build payload archive
+        shell: bash
+        env:
+          BROWSER_DIR_NAME: ${{ steps.verify.outputs.browser_dir_name }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          tar --numeric-owner --owner=0 --group=0 \
+            -czf "$RUNNER_TEMP/$PAYLOAD_FILENAME" \
+            "$BROWSER_CACHE_DIRECTORY/$BROWSER_DIR_NAME"
+
+      - name: Verify payload archive
+        shell: bash
+        env:
+          BROWSER_DIR_NAME: ${{ steps.verify.outputs.browser_dir_name }}
+          EXECUTABLE_RELATIVE_PATH: ${{ steps.verify.outputs.executable_relative_path }}
+        run: |
+          set -euo pipefail
+          node scripts/playwright-runtime-tar.mjs verify \
+            "$RUNNER_TEMP/$PAYLOAD_FILENAME" \
+            "$BROWSER_CACHE_DIRECTORY" \
+            "$BROWSER_CACHE_DIRECTORY/$BROWSER_DIR_NAME/$EXECUTABLE_RELATIVE_PATH"
+
+      - name: Build manifest
+        shell: bash
+        env:
+          PAYLOAD_PATH: ${{ runner.temp }}/${{ env.PAYLOAD_FILENAME }}
+          BROWSERS_JSON_PATH: ${{ runner.temp }}/pw-install/node_modules/playwright-core/browsers.json
+          WORKFLOW_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RUNNER_LABEL: ubuntu-24.04
+        run: node scripts/playwright-runtime-manifest.mjs "$RUNNER_TEMP/playwright-runtime-manifest.json"
+
+      - name: Upload runtime payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ runner.temp }}/${{ env.PAYLOAD_FILENAME }}
+            ${{ runner.temp }}/playwright-runtime-manifest.json
+          if-no-files-found: error
+          retention-days: 30
