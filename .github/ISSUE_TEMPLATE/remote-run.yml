@@ -1,5 +1,5 @@
 name: Remote machine task
-description: Run one typed note-projects machine task. Owner requests only.
+description: Run one typed private-source machine task on the public qualified execution plane. Owner requests only.
 title: "[remote-run] "
 labels: []
 body:
@@ -9,6 +9,7 @@ body:
       label: Task
       options:
         - repository-verify
+        - threads-affiliates-verify
         - verify-publication
         - publication-prepare
         - publication-preview
@@ -18,7 +19,7 @@ body:
     id: target
     attributes:
       label: Target
-      description: Required for publication tasks only (ART-xxx / FDR-xxx). Leave blank for repository-verify.
+      description: Required for publication tasks only (ART-xxx / FDR-xxx). Leave blank for repository verify tasks.
       placeholder: ART-010
     validations:
       required: false
@@ -35,7 +36,7 @@ body:
     id: pull_request
     attributes:
       label: Pull Request
-      description: Numeric PR number in clockcrockwork/note-projects. Required when Source is pull_request.
+      description: Numeric PR number in the task's fixed private source repository. Required when Source is pull_request.
       placeholder: "245"
     validations:
       required: false
