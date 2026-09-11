@@ -1,23 +1,26 @@
 # note-projects-cli
 
-Public compute plane for private `clockcrockwork/note-projects`.
+Public qualified compute plane for selected private `clockcrockwork` repositories.
 
-The private repository remains canonical. This repository contains reviewed runner/bootstrap code only; it must never become a mirror of unpublished/paid Article content or licensed font bytes.
+The private repositories remain canonical. This repository contains reviewed runner/bootstrap code only; it must never become a mirror of unpublished/paid content, private operational state, or licensed font bytes.
 
 ## Typed tasks
 
 The request surface is deliberately closed:
 
-- `repository-verify`
+- `repository-verify` — fixed source repository: `clockcrockwork/note-projects`
+- `threads-affiliates-verify` — fixed source repository: `clockcrockwork/threads-affiliates`
 - `verify-publication`
 - `publication-prepare`
 - `publication-preview`
 
-No public input may choose an arbitrary command, repository URL, branch/tag/SHA, path, or environment value.
+No public input may choose an arbitrary command, repository URL, branch/tag/SHA, path, or environment value. Repository identity is selected by reviewed task code, not by the request.
 
-`repository-verify` is the first activated task. It resolves a numeric same-repository private PR to one exact `SOURCE_SHA`, obtains the changed-path plan from reviewed private `main`, installs dependencies before source export, exports only the private-canonical allowlist with its hard denylist, revokes App tokens, and runs the selected public-safe commands inside a `--network none` container. Raw child output is captured rather than streamed to public Actions logs.
+`repository-verify` resolves a numeric `note-projects` PR to one exact `SOURCE_SHA`, obtains the changed-path plan from reviewed private `main`, installs dependencies before source export, exports only the private-canonical allowlist with its hard denylist, revokes App tokens, and runs the selected public-safe commands inside a `--network none` container. Raw child output is captured rather than streamed to public Actions logs.
 
-Publication tasks remain typed but intentionally return `HOLD: TYPED_TASK_NOT_ACTIVATED` until their separate private-content / protected-preview planes are activated.
+`threads-affiliates-verify` provides the same public-CI boundary for the Reply Inbox affiliate owner stack. It resolves only numeric PRs in the fixed `clockcrockwork/threads-affiliates` repository, exports only package/runtime/test/build inputs required by `npm test` and `npm run build:gas`, rejects unsafe paths/symlinks/gitlinks, revokes the private-source token before source execution, and executes the private source only inside a no-network container. Documentation-only changes may return `NOT_REQUIRED` without exporting or executing private source.
+
+Publication tasks remain typed and follow their separately qualified activation boundaries.
 
 ## One-time activation boundary
 
@@ -27,7 +30,16 @@ The privileged workflow expects GitHub Actions environment `private-source-read`
 - `NPR_APP_PRIVATE_KEY`
 - `NPR_APP_INSTALLATION_ID`
 
-The GitHub App must be installed only on `clockcrockwork/note-projects` with the minimum read permissions required for Contents and Pull Requests. Until those values exist, `repository-verify` fails closed as `HOLD: EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE` before any private API request.
+The GitHub App installation must include every private source repository used by an activated typed task, currently:
+
+- `clockcrockwork/note-projects`
+- `clockcrockwork/threads-affiliates`
+
+Grant only the minimum read permissions required for Contents and Pull Requests. Do not create a second secret set merely because another fixed repository is added to the qualified carrier; prefer one deliberately scoped installation when the same trust boundary applies.
+
+If a typed task selects a repository that is not included in the installation, token minting fails before any private source SHA or blob is obtained. Never work around that by broadening the request surface to accept arbitrary repositories.
+
+Until the environment credentials exist, private-source tasks fail closed before any private API request.
 
 ## No public payload storage
 
