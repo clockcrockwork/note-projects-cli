@@ -3,12 +3,14 @@ import { pathToFileURL } from 'node:url'
 
 export const TASKS = new Set([
   'repository-verify',
+  'threads-affiliates-verify',
   'verify-publication',
   'publication-prepare',
   'publication-preview',
 ])
 export const SOURCES = new Set(['main', 'pull_request'])
 const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
+const PR_ONLY_TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
 
 function normalized(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -46,7 +48,7 @@ export function parseIssueFormBody(body) {
   if (!SOURCES.has(source)) throw new Error('REQUEST_SOURCE_INVALID')
 
   const target = targetRaw === '_No response_' || targetRaw === 'NONE' ? null : targetRaw
-  if (task === 'repository-verify') {
+  if (PR_ONLY_TASKS.has(task)) {
     if (target !== null) throw new Error('REQUEST_TARGET_NOT_ALLOWED')
     if (source !== 'pull_request') throw new Error('REQUEST_REPOSITORY_VERIFY_REQUIRES_PR')
   } else if (!target || !TARGET_ID.test(target)) {
