@@ -29,8 +29,16 @@ function stableDiagnostic(error) {
 
 export function vercelSubprocessDiagnostic(run, fallback = 'VERCEL_DEPLOY_FAILED') {
   const stderr = typeof run?.stderr === 'string' ? run.stderr : ''
-  const matched = stderr.match(/\bcreate Vercel preview deployment: HTTP ([1-5]\d{2}):/)
-  return matched ? `VERCEL_DEPLOY_HTTP_${matched[1]}` : fallback
+  const matched = stderr.match(
+    /\bcreate Vercel preview deployment: HTTP ([1-5]\d{2}):(?: CODE=([A-Za-z0-9_-]{1,64})\b)?/,
+  )
+  if (!matched) return fallback
+  const status = matched[1]
+  if (!matched[2]) return `VERCEL_DEPLOY_HTTP_${status}`
+  const code = matched[2].toUpperCase().replaceAll('-', '_')
+  return /^[A-Z0-9_]{1,64}$/.test(code)
+    ? `VERCEL_DEPLOY_HTTP_${status}_${code}`
+    : `VERCEL_DEPLOY_HTTP_${status}`
 }
 
 function requiredEnv(name) {
