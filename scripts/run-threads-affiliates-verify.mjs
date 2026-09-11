@@ -11,6 +11,7 @@ import {
   resolvePullRequestSource,
   revokeInstallationToken,
 } from './github-app.mjs'
+import { classifyThreadsAffiliateGasBuildFailure } from './threads-affiliates-build-diagnostic.mjs'
 
 const REPOSITORY = 'clockcrockwork/threads-affiliates'
 const REPOSITORY_NAME = 'threads-affiliates'
@@ -292,7 +293,7 @@ async function main() {
       isolatedDockerArgs({ image, sourceRoot, argv: ['npm', 'run', 'build:gas'] }),
       { timeout: 15 * 60_000, env: childEnv() },
     )
-    if (!build.ok) throw new Error('GAS_BUILD_FAILED')
+    if (!build.ok) throw new Error(classifyThreadsAffiliateGasBuildFailure(build))
 
     await emit({
       schema_version: 1,
