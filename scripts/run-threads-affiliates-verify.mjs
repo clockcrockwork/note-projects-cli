@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   fetchBlob,
   fetchTextFile,
@@ -312,6 +313,6 @@ async function main() {
   }
 }
 
-if (import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
 }
