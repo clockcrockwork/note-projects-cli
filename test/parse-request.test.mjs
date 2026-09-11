@@ -12,6 +12,12 @@ test('accepts owner repository-verify request for numeric same-repo PR identity'
   })
 })
 
+test('accepts owner threads-affiliates verify request as a fixed PR-only task', () => {
+  assert.deepEqual(parseIssueFormBody(body({ task: 'threads-affiliates-verify', pr: '23' })), {
+    task: 'threads-affiliates-verify', target: null, source: 'pull_request', pull_request: 23,
+  })
+})
+
 test('rejects non-owner before any privileged work can start', () => {
   assert.throws(() => authorizeEvent({ action: 'opened', issue: { author_association: 'MEMBER', body: body() } }), /REQUEST_NOT_OWNER/)
 })
@@ -20,9 +26,14 @@ test('rejects arbitrary task/shell-shaped input', () => {
   assert.throws(() => parseIssueFormBody(body({ task: 'npm run verify; curl attacker' })), /REQUEST_TASK_INVALID/)
 })
 
-test('repository-verify does not accept main or target', () => {
-  assert.throws(() => parseIssueFormBody(body({ source: 'main', pr: '_No response_' })), /REQUIRES_PR/)
-  assert.throws(() => parseIssueFormBody(body({ target: 'ART-010' })), /TARGET_NOT_ALLOWED/)
+test('repository verify tasks do not accept main or target', () => {
+  for (const task of ['repository-verify', 'threads-affiliates-verify']) {
+    assert.throws(
+      () => parseIssueFormBody(body({ task, source: 'main', pr: '_No response_' })),
+      /REQUIRES_PR/,
+    )
+    assert.throws(() => parseIssueFormBody(body({ task, target: 'ART-010' })), /TARGET_NOT_ALLOWED/)
+  }
 })
 
 test('publication task requires controlled target grammar', () => {

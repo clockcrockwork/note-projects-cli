@@ -83,6 +83,58 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/report-result.mjs
 
+  threads_affiliates_verify:
+    needs: authorize
+    if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task == 'threads-affiliates-verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: private-source-read
+    permissions:
+      contents: read
+    outputs:
+      result_json: ${{ steps.run.outputs.result_json }}
+      source_sha: ${{ steps.run.outputs.source_sha }}
+      status: ${{ steps.run.outputs.status }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: run
+        continue-on-error: true
+        env:
+          REQUEST_JSON: ${{ needs.authorize.outputs.request_json }}
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+        run: node scripts/run-threads-affiliates-verify.mjs
+      - name: preserve task failure
+        if: ${{ steps.run.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
+
+  report_threads_affiliates_verify:
+    needs: [authorize, threads_affiliates_verify]
+    if: ${{ always() && needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task == 'threads-affiliates-verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RESULT_JSON: ${{ needs.threads_affiliates_verify.outputs.result_json }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/report-result.mjs
+
   publication_preview:
     needs: authorize
     if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task == 'publication-preview' }}
@@ -139,7 +191,7 @@ jobs:
 
   unactivated_typed_task:
     needs: authorize
-    if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task != 'repository-verify' && fromJSON(needs.authorize.outputs.request_json).task != 'publication-preview' }}
+    if: ${{ needs.authorize.result == 'success' && fromJSON(needs.authorize.outputs.request_json).task != 'repository-verify' && fromJSON(needs.authorize.outputs.request_json).task != 'threads-affiliates-verify' && fromJSON(needs.authorize.outputs.request_json).task != 'publication-preview' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
