@@ -61,6 +61,13 @@ function runCaptured(argv, { cwd, timeout = 15 * 60_000, env = childEnv() } = {}
   }
 }
 
+function hostDockerUser() {
+  if (typeof process.getuid !== 'function' || typeof process.getgid !== 'function') {
+    throw new Error('HOST_UID_GID_UNAVAILABLE')
+  }
+  return `${process.getuid()}:${process.getgid()}`
+}
+
 function isolatedDockerArgs({ image, sourceRoot, argv }) {
   return [
     'docker',
@@ -74,6 +81,8 @@ function isolatedDockerArgs({ image, sourceRoot, argv }) {
     'no-new-privileges',
     '--pids-limit',
     '512',
+    '--user',
+    hostDockerUser(),
     '-e',
     'CI=1',
     '-e',
@@ -240,21 +249,6 @@ async function main() {
       env: childEnv({ NPM_CONFIG_CACHE: resolve(root, 'npm-cache') }),
     })
     if (!install.ok) throw new Error('DEPENDENCY_INSTALL_FAILED')
-
-    // esbuild needs its platform binary prepared by its lifecycle script. Keep
-    // the broad dependency install script-free, then rebuild only the reviewed,
-    // lockfile-pinned esbuild package before any private source blob is exported.
-    // This preserves the source isolation boundary while making build:gas usable
-    // later inside the no-network container.
-    const esbuildPrepare = runCaptured(
-      ['npm', 'rebuild', 'esbuild', '--no-audit', '--no-fund'],
-      {
-        cwd: sourceRoot,
-        timeout: 5 * 60_000,
-        env: childEnv({ NPM_CONFIG_CACHE: resolve(root, 'npm-cache') }),
-      },
-    )
-    if (!esbuildPrepare.ok) throw new Error('ESBUILD_PREPARE_FAILED')
 
     const listing = await listCompleteTree({
       token: accessToken,
