@@ -27,6 +27,12 @@ function stableDiagnostic(error) {
   return /^[A-Z0-9_]+$/.test(first) ? first : 'UNCLASSIFIED_FAILURE'
 }
 
+export function vercelSubprocessDiagnostic(run, fallback = 'VERCEL_DEPLOY_FAILED') {
+  const stderr = typeof run?.stderr === 'string' ? run.stderr : ''
+  const matched = stderr.match(/\bcreate Vercel preview deployment: HTTP ([1-5]\d{2}):/)
+  return matched ? `VERCEL_DEPLOY_HTTP_${matched[1]}` : fallback
+}
+
 function requiredEnv(name) {
   const value = process.env[name]
   if (!value) throw new Error('EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE')
@@ -529,14 +535,13 @@ async function main() {
     phase = 'VERCEL_DEPLOY'
     const deployments = []
     for (const slug of targetSlugs) {
-      const deployed = parseJsonOutput(
-        runCaptured(['node', deployerPath, 'deploy', resolve(payloadRoot, slug)], {
-          cwd: cleanRoot,
-          env: { ...vercelBaseEnv, VERCEL_PROJECT_ID: ensured.id },
-          timeout: 3 * 60_000,
-        }),
-        'VERCEL_DEPLOY_FAILED',
-      )
+      const deployRun = runCaptured(['node', deployerPath, 'deploy', resolve(payloadRoot, slug)], {
+        cwd: cleanRoot,
+        env: { ...vercelBaseEnv, VERCEL_PROJECT_ID: ensured.id },
+        timeout: 3 * 60_000,
+      })
+      if (!deployRun.ok) throw new Error(vercelSubprocessDiagnostic(deployRun))
+      const deployed = parseJsonOutput(deployRun, 'VERCEL_DEPLOY_FAILED')
       const safe = safeDeployment(deployed)
       if (safe.source_sha !== sourceSha || safe.target_slug !== slug) {
         throw new Error('VERCEL_DEPLOY_IDENTITY_MISMATCH')
