@@ -240,6 +240,21 @@ async function main() {
     })
     if (!install.ok) throw new Error('DEPENDENCY_INSTALL_FAILED')
 
+    // esbuild needs its platform binary prepared by its lifecycle script. Keep
+    // the broad dependency install script-free, then rebuild only the reviewed,
+    // lockfile-pinned esbuild package before any private source blob is exported.
+    // This preserves the source isolation boundary while making build:gas usable
+    // later inside the no-network container.
+    const esbuildPrepare = runCaptured(
+      ['npm', 'rebuild', 'esbuild', '--no-audit', '--no-fund'],
+      {
+        cwd: sourceRoot,
+        timeout: 5 * 60_000,
+        env: childEnv({ NPM_CONFIG_CACHE: resolve(root, 'npm-cache') }),
+      },
+    )
+    if (!esbuildPrepare.ok) throw new Error('ESBUILD_PREPARE_FAILED')
+
     const listing = await listCompleteTree({
       token: accessToken,
       repository: REPOSITORY,
