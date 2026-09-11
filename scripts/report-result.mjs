@@ -1,11 +1,18 @@
 import { pathToFileURL } from 'node:url'
 
 const REPOSITORY = 'clockcrockwork/note-projects-cli'
+const TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
 const STATUSES = new Set(['PASS', 'FAIL', 'HOLD', 'NOT_REQUIRED'])
 const SHA_RE = /^[0-9a-f]{40}$/
 const DIAGNOSTIC_RE = /^[A-Z0-9_]+$/
 const MAX_SAFE_LINE_NUMBER = 1_000_000
 const MAX_FORMAT_SPANS = 20
+const PUBLIC_COMMANDS = new Set([
+  'npm run verify:public',
+  'npm run gas:build',
+  'npm test',
+  'npm run build:gas',
+])
 
 function code(value) {
   return `\`${String(value).replaceAll('`', '')}\``
@@ -19,12 +26,12 @@ export function parseSafeResult(raw) {
     return { status: 'FAIL', diagnostic: 'RESULT_JSON_INVALID' }
   }
 
-  if (value?.task !== 'repository-verify' || !STATUSES.has(value?.status)) {
+  if (!TASKS.has(value?.task) || !STATUSES.has(value?.status)) {
     return { status: 'FAIL', diagnostic: 'RESULT_JSON_INVALID' }
   }
 
   const safe = {
-    task: 'repository-verify',
+    task: value.task,
     status: value.status,
   }
 
@@ -76,8 +83,7 @@ export function parseSafeResult(raw) {
     safe.format_unrelated_count = value.format_unrelated_count
   }
   if (Array.isArray(value.public_commands)) {
-    safe.public_commands = value.public_commands.filter((item) =>
-      item === 'npm run verify:public' || item === 'npm run gas:build')
+    safe.public_commands = value.public_commands.filter((item) => PUBLIC_COMMANDS.has(item))
   }
   if (typeof value.qualified_render_required === 'boolean') {
     safe.qualified_render_required = value.qualified_render_required
@@ -91,6 +97,7 @@ export function formatResultComment(raw, runUrl) {
     '<!-- note-projects-cli:remote-run-result -->',
     '### Remote machine result',
     '',
+    `- task: ${code(result.task ?? 'unknown')}`,
     `- status: ${code(result.status)}`,
   ]
   if (result.source_sha) lines.push(`- SOURCE_SHA: ${code(result.source_sha)}`)
