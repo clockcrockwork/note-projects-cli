@@ -1,8 +1,11 @@
 import { pathToFileURL } from 'node:url'
 
 const REPOSITORY = 'clockcrockwork/note-projects-cli'
-const TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
+const TASKS = new Set(['repository-verify', 'threads-affiliates-verify', 'verify-publication'])
 const STATUSES = new Set(['PASS', 'FAIL', 'HOLD', 'NOT_REQUIRED'])
+const LIVE_RESULTS = new Set(['PASS', 'HOLD', 'RETRYABLE_FAIL'])
+const VIEWPORT_RESULTS = new Set(['PASS', 'HOLD', 'RETRYABLE_FAIL', 'REACHABLE'])
+const ARTICLE_ID_RE = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
 const SHA_RE = /^[0-9a-f]{40}$/
 const DIAGNOSTIC_RE = /^[A-Z0-9_]+$/
 const MAX_SAFE_LINE_NUMBER = 1_000_000
@@ -38,6 +41,16 @@ export function parseSafeResult(raw) {
   if (SHA_RE.test(value.source_sha ?? '')) safe.source_sha = value.source_sha
   if (SHA_RE.test(value.tooling_sha ?? '')) safe.tooling_sha = value.tooling_sha
   if (DIAGNOSTIC_RE.test(value.diagnostic ?? '')) safe.diagnostic = value.diagnostic
+  if (ARTICLE_ID_RE.test(value.article_id ?? '')) safe.article_id = value.article_id
+  if (LIVE_RESULTS.has(value.live_result)) safe.live_result = value.live_result
+  if (value.viewport_results && typeof value.viewport_results === 'object') {
+    const viewportResults = {}
+    for (const name of ['desktop', 'mobile']) {
+      const result = value.viewport_results[name]
+      if (VIEWPORT_RESULTS.has(result)) viewportResults[name] = result
+    }
+    if (Object.keys(viewportResults).length) safe.viewport_results = viewportResults
+  }
   if (Number.isSafeInteger(value.changed_path_count) && value.changed_path_count >= 0) {
     safe.changed_path_count = value.changed_path_count
   }
@@ -102,6 +115,14 @@ export function formatResultComment(raw, runUrl) {
   ]
   if (result.source_sha) lines.push(`- SOURCE_SHA: ${code(result.source_sha)}`)
   if (result.tooling_sha) lines.push(`- TOOLING_SHA: ${code(result.tooling_sha)}`)
+  if (result.article_id) lines.push(`- article: ${code(result.article_id)}`)
+  if (result.live_result) lines.push(`- live result: ${code(result.live_result)}`)
+  if (result.viewport_results) {
+    const summary = Object.entries(result.viewport_results)
+      .map(([name, value]) => `${name}=${value}`)
+      .join(', ')
+    lines.push(`- viewports: ${code(summary)}`)
+  }
   if (result.diagnostic) lines.push(`- diagnostic: ${code(result.diagnostic)}`)
   if (result.changed_path_count !== undefined) lines.push(`- changed paths: ${result.changed_path_count}`)
   if (result.exported_file_count !== undefined) lines.push(`- exported files: ${result.exported_file_count}`)

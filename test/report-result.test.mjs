@@ -110,6 +110,32 @@ test('formatResultComment cannot relay unreviewed private output', () => {
   assert.doesNotMatch(comment, /PRIVATE_ERROR_BODY/)
 })
 
+test('verify-publication report exposes only safe result identifiers', () => {
+  const sourceSha = 'a'.repeat(40)
+  const toolingSha = 'b'.repeat(40)
+  const comment = formatResultComment(
+    JSON.stringify({
+      task: 'verify-publication',
+      status: 'HOLD',
+      article_id: 'ART-012',
+      source_sha: sourceSha,
+      tooling_sha: toolingSha,
+      live_result: 'HOLD',
+      viewport_results: { desktop: 'PASS', mobile: 'HOLD', secret: 'PRIVATE_SENTINEL' },
+      diagnostic: 'PUBLICATION_LIVE_HOLD',
+      published_url: 'https://note.com/private-path',
+      expected_title: 'PRIVATE_TITLE',
+    }),
+    'https://github.com/clockcrockwork/note-projects-cli/actions/runs/456',
+  )
+
+  assert.match(comment, /article: `ART-012`/)
+  assert.match(comment, /live result: `HOLD`/)
+  assert.match(comment, /viewports: `desktop=PASS, mobile=HOLD`/)
+  assert.match(comment, /PUBLICATION_LIVE_HOLD/)
+  assert.doesNotMatch(comment, /PRIVATE|note\.com/)
+})
+
 test('invalid result JSON fails closed to a stable diagnostic', () => {
   assert.deepEqual(parseSafeResult('{bad'), {
     status: 'FAIL',
