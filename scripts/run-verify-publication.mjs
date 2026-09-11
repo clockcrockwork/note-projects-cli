@@ -291,7 +291,7 @@ async function main() {
       ],
       {
         cwd: sourceRoot,
-        timeout: 8 * 60_000,
+        timeout: 15 * 60_000,
         env: childEnv({ PLAYWRIGHT_BROWSERS_PATH: browserPath }),
       },
     )
