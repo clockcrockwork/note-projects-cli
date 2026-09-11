@@ -17,6 +17,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function validateRepository(repository) {
+  if (typeof repository !== 'string' || !/^clockcrockwork\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error('SOURCE_REPOSITORY_INVALID')
+  }
+  return repository
+}
+
+function validateRepositoryName(repositoryName) {
+  if (typeof repositoryName !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(repositoryName)) {
+    throw new Error('SOURCE_REPOSITORY_NAME_INVALID')
+  }
+  return repositoryName
+}
+
 export function createAppJwt({ appId, privateKey, now = Math.floor(Date.now() / 1000) }) {
   if (!/^\d+$/.test(String(appId ?? ''))) throw new Error('APP_ID_INVALID')
   const key = String(privateKey ?? '').replaceAll('\\n', '\n').trim()
@@ -86,13 +100,19 @@ export async function api(
   throw new Error(`GITHUB_API_RETRY_EXHAUSTED:${method}:${path}`)
 }
 
-export async function mintInstallationToken({ appId, privateKey, installationId, permissions }) {
+export async function mintInstallationToken({
+  appId,
+  privateKey,
+  installationId,
+  permissions,
+  repositoryName = REPOSITORY_NAME,
+}) {
   if (!/^\d+$/.test(String(installationId ?? ''))) throw new Error('APP_INSTALLATION_ID_INVALID')
   const jwt = createAppJwt({ appId, privateKey })
   const result = await api(`/app/installations/${installationId}/access_tokens`, {
     token: jwt,
     method: 'POST',
-    body: { repositories: [REPOSITORY_NAME], permissions },
+    body: { repositories: [validateRepositoryName(repositoryName)], permissions },
   })
   if (!result?.token) throw new Error('APP_TOKEN_MISSING')
   return result.token
@@ -103,24 +123,23 @@ export async function revokeInstallationToken(token) {
   await api('/installation/token', { token, method: 'DELETE' })
 }
 
-export async function resolveSource({ token, source, pullRequest }) {
-  const main = await api(`/repos/${REPOSITORY}/commits/main`, { token })
-  const toolingSha = main?.sha
-  if (!/^[0-9a-f]{40}$/.test(toolingSha ?? '')) throw new Error('TOOLING_SHA_INVALID')
+export async function resolvePullRequestSource({ token, repository = REPOSITORY, pullRequest }) {
+  const targetRepository = validateRepository(repository)
+  if (!Number.isSafeInteger(pullRequest) || pullRequest < 1) throw new Error('SOURCE_REQUEST_INVALID')
 
-  if (source === 'main') return { toolingSha, sourceSha: toolingSha, changedPaths: [] }
-  if (source !== 'pull_request' || !Number.isSafeInteger(pullRequest)) throw new Error('SOURCE_REQUEST_INVALID')
-
-  const pr = await api(`/repos/${REPOSITORY}/pulls/${pullRequest}`, { token })
-  if (pr?.head?.repo?.full_name !== REPOSITORY) throw new Error('PR_HEAD_REPOSITORY_REJECTED')
-  if (pr?.base?.repo?.full_name !== REPOSITORY) throw new Error('PR_BASE_REPOSITORY_REJECTED')
+  const pr = await api(`/repos/${targetRepository}/pulls/${pullRequest}`, { token })
+  if (pr?.head?.repo?.full_name !== targetRepository) throw new Error('PR_HEAD_REPOSITORY_REJECTED')
+  if (pr?.base?.repo?.full_name !== targetRepository) throw new Error('PR_BASE_REPOSITORY_REJECTED')
   if (pr?.state !== 'open') throw new Error('PR_STATE_UNSUPPORTED')
   const sourceSha = pr?.head?.sha
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? '')) throw new Error('SOURCE_SHA_INVALID')
 
   const changedPaths = []
   for (let page = 1; ; page += 1) {
-    const files = await api(`/repos/${REPOSITORY}/pulls/${pullRequest}/files?per_page=100&page=${page}`, { token })
+    const files = await api(
+      `/repos/${targetRepository}/pulls/${pullRequest}/files?per_page=100&page=${page}`,
+      { token },
+    )
     if (!Array.isArray(files)) throw new Error('PR_FILES_INVALID')
     for (const file of files) {
       if (typeof file?.filename !== 'string' || !file.filename) throw new Error('PR_FILE_PATH_INVALID')
@@ -129,21 +148,35 @@ export async function resolveSource({ token, source, pullRequest }) {
     if (files.length < 100) break
     if (page >= 30) throw new Error('PR_FILES_PAGE_LIMIT')
   }
-  return { toolingSha, sourceSha, changedPaths: [...new Set(changedPaths)].sort() }
+  return { sourceSha, changedPaths: [...new Set(changedPaths)].sort() }
 }
 
-export async function fetchTextFile({ token, sha, path }) {
+export async function resolveSource({ token, source, pullRequest }) {
+  const main = await api(`/repos/${REPOSITORY}/commits/main`, { token })
+  const toolingSha = main?.sha
+  if (!/^[0-9a-f]{40}$/.test(toolingSha ?? '')) throw new Error('TOOLING_SHA_INVALID')
+
+  if (source === 'main') return { toolingSha, sourceSha: toolingSha, changedPaths: [] }
+  if (source !== 'pull_request' || !Number.isSafeInteger(pullRequest)) throw new Error('SOURCE_REQUEST_INVALID')
+
+  const resolved = await resolvePullRequestSource({ token, pullRequest })
+  return { toolingSha, ...resolved }
+}
+
+export async function fetchTextFile({ token, sha, path, repository = REPOSITORY }) {
   if (!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('FETCH_SHA_INVALID')
+  const targetRepository = validateRepository(repository)
   const encoded = path.split('/').map(encodeURIComponent).join('/')
-  const result = await api(`/repos/${REPOSITORY}/contents/${encoded}?ref=${sha}`, { token })
+  const result = await api(`/repos/${targetRepository}/contents/${encoded}?ref=${sha}`, { token })
   if (result?.type !== 'file' || result?.encoding !== 'base64' || typeof result?.content !== 'string') {
     throw new Error(`FETCH_FILE_INVALID:${path}`)
   }
   return Buffer.from(result.content.replaceAll('\n', ''), 'base64')
 }
 
-export async function listCompleteTree({ token, sha }) {
-  const commit = await api(`/repos/${REPOSITORY}/git/commits/${sha}`, { token })
+export async function listCompleteTree({ token, sha, repository = REPOSITORY }) {
+  const targetRepository = validateRepository(repository)
+  const commit = await api(`/repos/${targetRepository}/git/commits/${sha}`, { token })
   const rootTree = commit?.tree?.sha
   if (!/^[0-9a-f]{40}$/.test(rootTree ?? '')) throw new Error('ROOT_TREE_SHA_INVALID')
 
@@ -154,7 +187,7 @@ export async function listCompleteTree({ token, sha }) {
     const current = queue.shift()
     visited += 1
     if (visited > 10000) throw new Error('TREE_WALK_LIMIT')
-    const listing = await api(`/repos/${REPOSITORY}/git/trees/${current.treeSha}`, { token })
+    const listing = await api(`/repos/${targetRepository}/git/trees/${current.treeSha}`, { token })
     if (listing?.truncated) throw new Error('SOURCE_EXPORT_TREE_TRUNCATED')
     if (!Array.isArray(listing?.tree)) throw new Error('SOURCE_EXPORT_TREE_INVALID')
     for (const entry of listing.tree) {
@@ -167,8 +200,9 @@ export async function listCompleteTree({ token, sha }) {
   return { tree: flattened, truncated: false }
 }
 
-export async function fetchBlob({ token, blobSha }) {
-  const result = await api(`/repos/${REPOSITORY}/git/blobs/${blobSha}`, { token })
+export async function fetchBlob({ token, blobSha, repository = REPOSITORY }) {
+  const targetRepository = validateRepository(repository)
+  const result = await api(`/repos/${targetRepository}/git/blobs/${blobSha}`, { token })
   if (result?.encoding !== 'base64' || typeof result?.content !== 'string') throw new Error('BLOB_INVALID')
   return Buffer.from(result.content.replaceAll('\n', ''), 'base64')
 }
