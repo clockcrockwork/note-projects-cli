@@ -16,8 +16,9 @@ import { classifyThreadsAffiliateGasBuildFailure } from './threads-affiliates-bu
 const REPOSITORY = 'clockcrockwork/threads-affiliates'
 const REPOSITORY_NAME = 'threads-affiliates'
 const TASK = 'threads-affiliates-verify'
-const SOURCE_ROOTS = ['gas/', 'tests/', 'tools/']
-const SOURCE_EXTENSIONS = ['.mjs', '.json']
+const SOURCE_ROOTS = ['gas/', 'tests/', 'tools/', 'docs/']
+const SOURCE_EXTENSIONS = ['.mjs', '.json', '.md']
+const ROOT_CANONICALS = new Set(['AGENTS.md'])
 
 function stableDiagnostic(error) {
   const value = error instanceof Error ? error.message : String(error)
@@ -134,6 +135,7 @@ export function isSafeRepositoryPath(path) {
 
 export function isExportableThreadsAffiliatePath(path) {
   if (path === 'package.json' || path === 'package-lock.json') return true
+  if (ROOT_CANONICALS.has(path)) return true
   if (!SOURCE_ROOTS.some((root) => path.startsWith(root))) return false
   return SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))
 }
@@ -171,6 +173,7 @@ function requiresMachineVerification(changedPaths) {
     (path) =>
       path === 'package.json' ||
       path === 'package-lock.json' ||
+      ROOT_CANONICALS.has(path) ||
       SOURCE_ROOTS.some((root) => path.startsWith(root)),
   )
 }
