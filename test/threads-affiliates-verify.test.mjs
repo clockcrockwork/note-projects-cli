@@ -13,13 +13,14 @@ function blob(path, overrides = {}) {
   return { path, type: 'blob', mode: '100644', sha: SHA, ...overrides }
 }
 
-test('exports only package/runtime/test/build inputs and excludes docs/workflows', () => {
+test('exports package/runtime/test/build inputs plus canonical docs while excluding workflows/readme', () => {
   const plan = planThreadsAffiliateExport({
     truncated: false,
     tree: [
       { path: 'gas', type: 'tree', mode: '040000', sha: SHA },
       blob('package.json'),
       blob('package-lock.json'),
+      blob('AGENTS.md'),
       blob('gas/domain/reply-templates.mjs'),
       blob('gas/apps-script/appsscript.json'),
       blob('tests/reply-templates.spec.mjs'),
@@ -33,6 +34,8 @@ test('exports only package/runtime/test/build inputs and excludes docs/workflows
   assert.deepEqual(
     plan.map((entry) => entry.path),
     [
+      'AGENTS.md',
+      'docs/product-and-policy.md',
       'gas/apps-script/appsscript.json',
       'gas/domain/reply-templates.mjs',
       'package-lock.json',
@@ -77,6 +80,8 @@ test('path helpers stay narrow and deterministic', () => {
   assert.equal(isSafeRepositoryPath('gas\\x.mjs'), false)
   assert.equal(isExportableThreadsAffiliatePath('gas/domain/x.mjs'), true)
   assert.equal(isExportableThreadsAffiliatePath('tests/fixture.json'), true)
-  assert.equal(isExportableThreadsAffiliatePath('docs/private.md'), false)
+  assert.equal(isExportableThreadsAffiliatePath('docs/reply-system.md'), true)
+  assert.equal(isExportableThreadsAffiliatePath('AGENTS.md'), true)
+  assert.equal(isExportableThreadsAffiliatePath('docs/private.txt'), false)
   assert.equal(isExportableThreadsAffiliatePath('.github/workflows/verify.yml'), false)
 })
