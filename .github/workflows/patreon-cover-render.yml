@@ -28,11 +28,12 @@ concurrency:
 
 jobs:
   render:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: private-source-read
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -85,17 +86,40 @@ jobs:
           path: ${{ steps.run.outputs.artifact_path }}
           if-no-files-found: error
           retention-days: 14
+      - id: publish
+        name: Publish mobile-downloadable cover previews
+        if: ${{ steps.run.outcome == 'success' && inputs.source == 'main' && steps.run.outputs.artifact_path != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PATH: ${{ steps.run.outputs.artifact_path }}
+          RELEASE_TAG: patreon-cover-previews
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title "Patreon cover previews" \
+              --notes "Publication-safe Patreon cover outputs from the qualified public renderer. Download the 1920x1080 PNG for Patreon; 320x180 and 240x135 are QA sizes." \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          fi
+          gh release upload "$RELEASE_TAG" "$ARTIFACT_PATH"/*.png --clobber
+          printf 'release_url=%s\n' "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
       - name: Summary
         if: ${{ always() }}
         shell: bash
         env:
           RESULT_JSON: ${{ steps.run.outputs.result_json }}
+          RELEASE_URL: ${{ steps.publish.outputs.release_url }}
         run: |
           printf '### Patreon cover render\n\n' >> "$GITHUB_STEP_SUMMARY"
           if [[ -n "$RESULT_JSON" ]]; then
             printf '`%s`\n' "$RESULT_JSON" >> "$GITHUB_STEP_SUMMARY"
           else
             printf '`PATREON_COVER_RENDER_NO_RESULT`\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -n "$RELEASE_URL" ]]; then
+            printf '\nMobile/download handoff: %s\n' "$RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Preserve task failure
         if: ${{ steps.run.outcome == 'failure' }}
