@@ -19,12 +19,16 @@ on:
         description: Numeric Patreon PR number when source=pull_request
         required: false
         type: string
+  push:
+    branches: [main]
+    paths:
+      - requests/patreon-cover-render.json
 
 permissions: {}
 
 concurrency:
-  group: patreon-cover-${{ inputs.target }}-${{ inputs.source }}-${{ inputs.pull_request }}
-  cancel-in-progress: true
+  group: patreon-cover-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   render:
@@ -48,6 +52,33 @@ jobs:
           PR: ${{ inputs.pull_request }}
         run: |
           set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            request_json="$(node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const raw = JSON.parse(fs.readFileSync('requests/patreon-cover-render.json', 'utf8'))
+          if (!raw || typeof raw.target !== 'string' || !/^PTN-COVER-[A-Z0-9-]+$/.test(raw.target)) {
+            console.error('REQUEST_TARGET_INVALID')
+            process.exit(2)
+          }
+          const keys = Object.keys(raw).sort()
+          if (keys.length !== 1 || keys[0] !== 'target') {
+            console.error('REQUEST_SHAPE_INVALID')
+            process.exit(2)
+          }
+          process.stdout.write(JSON.stringify({
+            task: 'patreon-cover-render',
+            target: raw.target,
+            source: 'main',
+            pull_request: null,
+          }))
+          NODE
+            )"
+            printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+            printf 'source=main\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [[ ! "$TARGET" =~ ^PTN-COVER-[A-Z0-9-]+$ ]]; then
             echo 'REQUEST_TARGET_INVALID' >&2
             exit 2
@@ -70,6 +101,7 @@ jobs:
           fi
           request_json="$(printf '{"task":"patreon-cover-render","target":"%s","source":"%s","pull_request":%s}' "$TARGET" "$SOURCE" "$pr_json")"
           printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+          printf 'source=%s\n' "$SOURCE" >> "$GITHUB_OUTPUT"
       - id: run
         continue-on-error: true
         env:
@@ -88,7 +120,7 @@ jobs:
           retention-days: 14
       - id: publish
         name: Publish mobile-downloadable cover previews
-        if: ${{ steps.run.outcome == 'success' && inputs.source == 'main' && steps.run.outputs.artifact_path != '' }}
+        if: ${{ steps.run.outcome == 'success' && steps.request.outputs.source == 'main' && steps.run.outputs.artifact_path != '' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
