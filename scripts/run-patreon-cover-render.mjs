@@ -20,6 +20,8 @@ const MANIFEST_PATH = 'covers/public-render-manifest.json'
 const TARGET_RE = /^PTN-COVER-[A-Z0-9-]+$/
 const SAFE_SOURCE_RE = /^covers\/media\/public-ready\/[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g)$/
 const SAFE_PART_RE = /^covers\/media\/public-ready\/_chunks\/[a-z0-9][a-z0-9._/-]*\.b64part$/
+const SAFE_ARCHIVE_RE = /^covers\/media\/public-ready\/[a-z0-9][a-z0-9._-]*\.zip$/
+const SAFE_ARCHIVE_ENTRY_RE = /^[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g)$/
 const SAFE_DEST_RE = /^covers\/media\/(?:generated|public-ready)\/[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g)$/
 const SAFE_REQUEST_RE = /^covers\/requests\/[a-z0-9][a-z0-9._-]*\.yaml$/
 const SHA256_RE = /^[0-9a-f]{64}$/
@@ -36,7 +38,7 @@ function fail(message) {
 function safeResultDiagnostic(error) {
   const raw = error instanceof Error ? error.message : String(error)
   if (/PUBLIC_READY_MEDIA_MISSING/.test(raw)) return 'PUBLIC_READY_MEDIA_MISSING'
-  if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH)_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_INVALID'
+  if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH|ARCHIVE)_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_INVALID'
   if (/TARGET_NOT_DECLARED/.test(raw)) return 'TARGET_NOT_DECLARED'
   if (/SOURCE_/.test(raw) || /GITHUB_API_/.test(raw)) return 'PRIVATE_SOURCE_UNAVAILABLE'
   if (/NPM_CI_FAILED/.test(raw)) return 'DEPENDENCY_INSTALL_FAILED'
@@ -55,11 +57,13 @@ export function validateManifest(raw, target) {
   if (!entry) fail('TARGET_NOT_DECLARED')
   if (!SAFE_REQUEST_RE.test(entry.request ?? '')) fail('PUBLIC_RENDER_REQUEST_INVALID')
   if (!Array.isArray(entry.media) || entry.media.length < 1 || entry.media.length > 4) fail('PUBLIC_RENDER_MEDIA_INVALID')
+
   const media = entry.media.map((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) fail('PUBLIC_RENDER_MEDIA_INVALID')
     const hasSource = typeof item.source === 'string'
     const hasParts = Array.isArray(item.source_parts)
-    if (hasSource === hasParts) fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
+    const hasArchive = typeof item.source_archive === 'string' || typeof item.archive_entry === 'string'
+    if ([hasSource, hasParts, hasArchive].filter(Boolean).length !== 1) fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
     if (!SAFE_DEST_RE.test(item.destination ?? '')) fail('PUBLIC_RENDER_MEDIA_DESTINATION_INVALID')
     if (item.sha256 != null && !SHA256_RE.test(item.sha256)) fail('PUBLIC_RENDER_MEDIA_HASH_INVALID')
 
@@ -68,11 +72,23 @@ export function validateManifest(raw, target) {
       return { source: item.source, destination: item.destination, ...(item.sha256 ? { sha256: item.sha256 } : {}) }
     }
 
-    if (item.source_parts.length < 1 || item.source_parts.length > 32 || item.source_parts.some((part) => !SAFE_PART_RE.test(part))) {
+    if (hasParts) {
+      if (item.source_parts.length < 1 || item.source_parts.length > 32 || item.source_parts.some((part) => !SAFE_PART_RE.test(part))) {
+        fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
+      }
+      return {
+        source_parts: [...item.source_parts],
+        destination: item.destination,
+        ...(item.sha256 ? { sha256: item.sha256 } : {}),
+      }
+    }
+
+    if (!SAFE_ARCHIVE_RE.test(item.source_archive ?? '') || !SAFE_ARCHIVE_ENTRY_RE.test(item.archive_entry ?? '')) {
       fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
     }
     return {
-      source_parts: [...item.source_parts],
+      source_archive: item.source_archive,
+      archive_entry: item.archive_entry,
       destination: item.destination,
       ...(item.sha256 ? { sha256: item.sha256 } : {}),
     }
@@ -141,12 +157,29 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-async function loadDeclaredMedia({ token, sourceSha, item }) {
+async function loadArchiveEntry({ token, sourceSha, root, item }) {
+  const archiveBytes = await fetchTextFile({ token, sha: sourceSha, path: item.source_archive, repository: REPOSITORY })
+  const archiveDir = path.join(root, '.public-ready-archives')
+  await mkdir(archiveDir, { recursive: true })
+  const archivePath = path.join(archiveDir, `${sha256(Buffer.from(item.source_archive)).slice(0, 16)}.zip`)
+  await writeFile(archivePath, archiveBytes)
+  const result = spawnSync('unzip', ['-p', archivePath, item.archive_entry], {
+    encoding: null,
+    env: { PATH: process.env.PATH ?? '' },
+    maxBuffer: 20 * 1024 * 1024,
+  })
+  if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout) || result.stdout.length === 0) {
+    fail('PUBLIC_READY_MEDIA_ARCHIVE_INVALID')
+  }
+  return result.stdout
+}
+
+async function loadDeclaredMedia({ token, sourceSha, root, item }) {
   try {
     let bytes
     if (item.source) {
       bytes = await fetchTextFile({ token, sha: sourceSha, path: item.source, repository: REPOSITORY })
-    } else {
+    } else if (item.source_parts) {
       let encoded = ''
       for (const part of item.source_parts) {
         const partBytes = await fetchTextFile({ token, sha: sourceSha, path: part, repository: REPOSITORY })
@@ -154,11 +187,14 @@ async function loadDeclaredMedia({ token, sourceSha, item }) {
       }
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 !== 0) fail('PUBLIC_READY_MEDIA_ENCODING_INVALID')
       bytes = Buffer.from(encoded, 'base64')
+    } else {
+      bytes = await loadArchiveEntry({ token, sourceSha, root, item })
     }
     if (item.sha256 && sha256(bytes) !== item.sha256) fail('PUBLIC_READY_MEDIA_HASH_INVALID')
     return bytes
   } catch (error) {
-    if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH)_INVALID/.test(error instanceof Error ? error.message : String(error))) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH|ARCHIVE)_INVALID/.test(message)) throw error
     fail('PUBLIC_READY_MEDIA_MISSING')
   }
 }
@@ -231,7 +267,7 @@ async function main() {
     await writeBuffer(root, entry.request, requestBytes)
 
     for (const item of entry.media) {
-      const bytes = await loadDeclaredMedia({ token, sourceSha, item })
+      const bytes = await loadDeclaredMedia({ token, sourceSha, root, item })
       await writeBuffer(root, item.destination, bytes)
     }
 
