@@ -13,6 +13,7 @@ The request surface is deliberately closed:
 - `verify-publication`
 - `publication-prepare`
 - `publication-preview`
+- `patreon-cover-render` — fixed source repository: `clockcrockwork/patreon`; execution is exposed through the dedicated public `Patreon cover render` workflow
 
 No public input may choose an arbitrary command, repository URL, branch/tag/SHA, path, or environment value. Repository identity is selected by reviewed task code, not by the request.
 
@@ -34,6 +35,7 @@ The GitHub App installation must include every private source repository used by
 
 - `clockcrockwork/note-projects`
 - `clockcrockwork/threads-affiliates`
+- `clockcrockwork/patreon` for `patreon-cover-render`
 
 Grant only the minimum read permissions required for Contents and Pull Requests. Do not create a second secret set merely because another fixed repository is added to the qualified carrier; prefer one deliberately scoped installation when the same trust boundary applies.
 
@@ -43,7 +45,31 @@ Until the environment credentials exist, private-source tasks fail closed before
 
 ## No public payload storage
 
-The workflows intentionally do not use `actions/cache` or `actions/upload-artifact` for private source/output. Public Actions is compute, not a durable private-content store.
+The workflows intentionally do not use `actions/cache` or `actions/upload-artifact` for private source/output.
+
+A narrow exception exists for outputs that have already crossed an explicit export boundary. `patreon-cover-render` may upload only the three publication-bound PNG cover sizes plus a sanitized manifest. Its private source media must first be committed under `covers/media/public-ready/` in the canonical Patreon repository and declared by `covers/public-render-manifest.json`. The workflow never uploads the private request, renderer source, source media, package files, or raw command logs.
+
+Public Actions is therefore compute for private canonical state, with durable artifacts limited to material already approved for publication.
+
+## Patreon cover render carrier
+
+`.github/workflows/patreon-cover-render.yml` moves deterministic cover rendering off the private Patreon repository and onto this public compute plane.
+
+Contract:
+
+- the private `clockcrockwork/patreon` repository remains canonical;
+- the public workflow accepts only `PTN-COVER-*` targets declared in the private main-branch render manifest;
+- renderer/package/logo tooling is always fetched from trusted private `main`, even when rendering a private pull request;
+- a pull request may therefore change only the request/media data consumed by trusted tooling, not the renderer executed on the public runner;
+- media must come from the private repository's explicit `covers/media/public-ready/` export boundary;
+- the GitHub App token is revoked before dependency install, tests, and rendering;
+- dependency installation uses `npm ci --ignore-scripts` against package metadata from trusted private `main`;
+- artifacts are reduced to exactly 1920x1080, 320x180, and 240x135 PNGs plus a SHA-256 manifest;
+- no raw private command output is intentionally emitted.
+
+Use **Actions → Patreon cover render → Run workflow**. Select a declared target, choose `main` for normal publication rendering, or `pull_request` plus a numeric Patreon PR when validating request/media changes before merge.
+
+The current private GitHub Actions quota does not need to be consumed by this operation; the workflow itself runs in this public repository.
 
 ## Playwright runtime carrier
 
