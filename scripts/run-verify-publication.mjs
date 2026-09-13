@@ -133,6 +133,27 @@ export function publicationDataPaths(tree, publicationPath) {
   return paths
 }
 
+function safePublicTagList(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((tag) => typeof tag === 'string')
+    .map((tag) => tag.normalize('NFKC').trim())
+    .filter((tag) => tag.length > 0 && tag.length <= 64 && !/[\r\n]/.test(tag))
+    .slice(0, 32)
+}
+
+function safeCheckEvidence(check) {
+  const safe = { id: check.id, status: check.status }
+  if (check.id !== 'tags' || !check.detail || typeof check.detail !== 'object') return safe
+  safe.detail = {
+    expected: safePublicTagList(check.detail.expected),
+    observed: safePublicTagList(check.detail.observed),
+    missing: safePublicTagList(check.detail.missing),
+    extra: safePublicTagList(check.detail.extra),
+  }
+  return safe
+}
+
 export function safeEvidenceFromReport(report, { sourceSha, toolingSha, target }) {
   if (!report || !LIVE_RESULTS.has(report.result) || typeof report.article_id !== 'string') {
     throw new Error('PUBLICATION_LIVE_RESULT_INVALID')
@@ -151,7 +172,7 @@ export function safeEvidenceFromReport(report, { sourceSha, toolingSha, target }
               /^[a-z0-9_]+$/.test(check.id) &&
               CHECK_RESULTS.has(check.status),
           )
-          .map((check) => ({ id: check.id, status: check.status }))
+          .map((check) => safeCheckEvidence(check))
       : []
     viewports[name] = {
       result: viewport.result,

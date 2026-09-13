@@ -45,7 +45,7 @@ test('publicationDataPaths exports publication metadata plus markdown only', () 
   ])
 })
 
-test('safeEvidenceFromReport strips page text, URLs and check details', () => {
+test('safeEvidenceFromReport exposes bounded tag delta and strips other details', () => {
   const sourceSha = 'a'.repeat(40)
   const toolingSha = 'b'.repeat(40)
   const safe = safeEvidenceFromReport(
@@ -63,7 +63,16 @@ test('safeEvidenceFromReport strips page text, URLs and check details', () => {
           snapshot: { pageText: 'PRIVATE_PAGE_TEXT' },
           checks: [
             { id: 'title', status: 'PASS', detail: { expected: 'PRIVATE_TITLE' } },
-            { id: 'tags', status: 'HOLD', detail: { missing: ['PRIVATE_TAG'] } },
+            {
+              id: 'tags',
+              status: 'HOLD',
+              detail: {
+                expected: ['生成AI', 'AI'],
+                observed: ['AI', 'bad\nsecret'],
+                missing: ['生成AI'],
+                extra: ['追加タグ'],
+              },
+            },
             { id: '../escape', status: 'HOLD', detail: 'PRIVATE' },
           ],
         },
@@ -88,7 +97,16 @@ test('safeEvidenceFromReport strips page text, URLs and check details', () => {
         retries: 0,
         checks: [
           { id: 'title', status: 'PASS' },
-          { id: 'tags', status: 'HOLD' },
+          {
+            id: 'tags',
+            status: 'HOLD',
+            detail: {
+              expected: ['生成AI', 'AI'],
+              observed: ['AI'],
+              missing: ['生成AI'],
+              extra: ['追加タグ'],
+            },
+          },
         ],
       },
       mobile: { result: 'RETRYABLE_FAIL', status: 503, retries: 5, checks: [] },
