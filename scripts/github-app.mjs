@@ -168,10 +168,14 @@ export async function fetchTextFile({ token, sha, path, repository = REPOSITORY 
   const targetRepository = validateRepository(repository)
   const encoded = path.split('/').map(encodeURIComponent).join('/')
   const result = await api(`/repos/${targetRepository}/contents/${encoded}?ref=${sha}`, { token })
-  if (result?.type !== 'file' || result?.encoding !== 'base64' || typeof result?.content !== 'string') {
-    throw new Error(`FETCH_FILE_INVALID:${path}`)
+  if (result?.type !== 'file') throw new Error(`FETCH_FILE_INVALID:${path}`)
+  if (result?.encoding === 'base64' && typeof result?.content === 'string') {
+    return Buffer.from(result.content.replaceAll('\n', ''), 'base64')
   }
-  return Buffer.from(result.content.replaceAll('\n', ''), 'base64')
+  if (/^[0-9a-f]{40}$/.test(result?.sha ?? '')) {
+    return fetchBlob({ token, blobSha: result.sha, repository: targetRepository })
+  }
+  throw new Error(`FETCH_FILE_INVALID:${path}`)
 }
 
 export async function listCompleteTree({ token, sha, repository = REPOSITORY }) {
