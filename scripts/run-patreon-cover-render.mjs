@@ -38,7 +38,9 @@ function fail(message) {
 function safeResultDiagnostic(error) {
   const raw = error instanceof Error ? error.message : String(error)
   if (/PUBLIC_READY_MEDIA_MISSING/.test(raw)) return 'PUBLIC_READY_MEDIA_MISSING'
-  if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH|ARCHIVE)_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_INVALID'
+  if (/PUBLIC_READY_MEDIA_ENCODING_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_ENCODING_INVALID'
+  if (/PUBLIC_READY_MEDIA_HASH_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_HASH_INVALID'
+  if (/PUBLIC_READY_MEDIA_ARCHIVE_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_ARCHIVE_INVALID'
   if (/TARGET_NOT_DECLARED/.test(raw)) return 'TARGET_NOT_DECLARED'
   if (/SOURCE_/.test(raw) || /GITHUB_API_/.test(raw)) return 'PRIVATE_SOURCE_UNAVAILABLE'
   if (/NPM_CI_FAILED/.test(raw)) return 'DEPENDENCY_INSTALL_FAILED'
@@ -157,13 +159,34 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+function safeArchiveMember(member) {
+  const normalized = member.replaceAll('\\', '/').replace(/^\.\//, '')
+  if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) return null
+  return normalized
+}
+
 async function loadArchiveEntry({ token, sourceSha, root, item }) {
   const archiveBytes = await fetchTextFile({ token, sha: sourceSha, path: item.source_archive, repository: REPOSITORY })
   const archiveDir = path.join(root, '.public-ready-archives')
   await mkdir(archiveDir, { recursive: true })
   const archivePath = path.join(archiveDir, `${sha256(Buffer.from(item.source_archive)).slice(0, 16)}.zip`)
   await writeFile(archivePath, archiveBytes)
-  const result = spawnSync('unzip', ['-p', archivePath, item.archive_entry], {
+
+  const listing = spawnSync('unzip', ['-Z1', archivePath], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH ?? '' },
+    maxBuffer: 2 * 1024 * 1024,
+  })
+  if (listing.error || listing.status !== 0 || typeof listing.stdout !== 'string') {
+    fail('PUBLIC_READY_MEDIA_ARCHIVE_INVALID')
+  }
+  const members = listing.stdout.split(/\r?\n/).map(safeArchiveMember).filter(Boolean)
+  const exact = members.filter((member) => member === item.archive_entry)
+  const basenameMatches = members.filter((member) => path.posix.basename(member) === item.archive_entry)
+  const selected = exact.length === 1 ? exact[0] : basenameMatches.length === 1 ? basenameMatches[0] : null
+  if (!selected) fail('PUBLIC_READY_MEDIA_ARCHIVE_INVALID')
+
+  const result = spawnSync('unzip', ['-p', archivePath, selected], {
     encoding: null,
     env: { PATH: process.env.PATH ?? '' },
     maxBuffer: 20 * 1024 * 1024,
