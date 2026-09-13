@@ -7,9 +7,10 @@ export const TASKS = new Set([
   'verify-publication',
   'publication-prepare',
   'publication-preview',
+  'patreon-cover-render',
 ])
 export const SOURCES = new Set(['main', 'pull_request'])
-const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
+const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+|PTN-COVER-[A-Z0-9-]+)$/
 const PR_ONLY_TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
 
 function normalized(value) {
@@ -52,6 +53,10 @@ export function parseIssueFormBody(body) {
     if (target !== null) throw new Error('REQUEST_TARGET_NOT_ALLOWED')
     if (source !== 'pull_request') throw new Error('REQUEST_REPOSITORY_VERIFY_REQUIRES_PR')
   } else if (!target || !TARGET_ID.test(target)) {
+    throw new Error('REQUEST_TARGET_INVALID')
+  }
+
+  if (task === 'patreon-cover-render' && !/^PTN-COVER-[A-Z0-9-]+$/.test(target ?? '')) {
     throw new Error('REQUEST_TARGET_INVALID')
   }
 
