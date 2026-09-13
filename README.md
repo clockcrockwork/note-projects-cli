@@ -6,14 +6,13 @@ The private repositories remain canonical. This repository contains reviewed run
 
 ## Typed tasks
 
-The request surface is deliberately closed:
+The issue-driven request surface is deliberately closed:
 
 - `repository-verify` — fixed source repository: `clockcrockwork/note-projects`
 - `threads-affiliates-verify` — fixed source repository: `clockcrockwork/threads-affiliates`
 - `verify-publication`
 - `publication-prepare`
 - `publication-preview`
-- `patreon-cover-render` — fixed source repository: `clockcrockwork/patreon`; execution is exposed through the dedicated public `Patreon cover render` workflow
 
 No public input may choose an arbitrary command, repository URL, branch/tag/SHA, path, or environment value. Repository identity is selected by reviewed task code, not by the request.
 
@@ -25,35 +24,35 @@ Publication tasks remain typed and follow their separately qualified activation 
 
 ## One-time activation boundary
 
-The privileged workflow expects GitHub Actions environment `private-source-read` with these secrets:
+Privileged workflows use GitHub Actions environment `private-source-read` with these secrets:
 
 - `NPR_APP_ID`
 - `NPR_APP_PRIVATE_KEY`
 - `NPR_APP_INSTALLATION_ID`
 
-The GitHub App installation must include every private source repository used by an activated typed task, currently:
+The GitHub App installation must include every private source repository used by an activated carrier/task, currently:
 
 - `clockcrockwork/note-projects`
 - `clockcrockwork/threads-affiliates`
-- `clockcrockwork/patreon` for `patreon-cover-render`
+- `clockcrockwork/patreon` for the dedicated Patreon cover carrier
 
 Grant only the minimum read permissions required for Contents and Pull Requests. Do not create a second secret set merely because another fixed repository is added to the qualified carrier; prefer one deliberately scoped installation when the same trust boundary applies.
 
-If a typed task selects a repository that is not included in the installation, token minting fails before any private source SHA or blob is obtained. Never work around that by broadening the request surface to accept arbitrary repositories.
+If a workflow selects a repository that is not included in the installation, token minting fails before any private source SHA or blob is obtained. Never work around that by broadening a public request surface to accept arbitrary repositories.
 
-Until the environment credentials exist, private-source tasks fail closed before any private API request.
+Until the environment credentials exist, private-source workflows fail closed before any private API request.
 
 ## No public payload storage
 
-The workflows intentionally do not use `actions/cache` or `actions/upload-artifact` for private source/output.
+The issue-driven workflows intentionally do not use `actions/cache` or `actions/upload-artifact` for private source/output.
 
-A narrow exception exists for outputs that have already crossed an explicit export boundary. `patreon-cover-render` may upload only the three publication-bound PNG cover sizes plus a sanitized manifest. Its private source media must first be committed under `covers/media/public-ready/` in the canonical Patreon repository and declared by `covers/public-render-manifest.json`. The workflow never uploads the private request, renderer source, source media, package files, or raw command logs.
+A narrow exception exists for outputs that have already crossed an explicit export boundary. The dedicated Patreon cover carrier may upload only the three publication-bound PNG cover sizes plus a sanitized manifest. Its private source media must first be committed under `covers/media/public-ready/` in the canonical Patreon repository and declared by `covers/public-render-manifest.json`. The workflow never uploads the private request, renderer source, source media, package files, or raw command logs.
 
 Public Actions is therefore compute for private canonical state, with durable artifacts limited to material already approved for publication.
 
 ## Patreon cover render carrier
 
-`.github/workflows/patreon-cover-render.yml` moves deterministic cover rendering off the private Patreon repository and onto this public compute plane.
+`.github/workflows/patreon-cover-render.yml` moves deterministic cover rendering off the private Patreon repository and onto this public compute plane. It is intentionally a dedicated `workflow_dispatch` surface rather than part of the issue-driven typed-task parser.
 
 Contract:
 
