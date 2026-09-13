@@ -10,7 +10,7 @@ const directManifest = {
       media: [
         {
           source: 'covers/media/public-ready/overgrid-newtab.png',
-          destination: 'covers/media/overgrid-newtab.png',
+          destination: 'covers/media/generated/overgrid-newtab.png',
         },
       ],
     },
@@ -59,7 +59,7 @@ test('accepts a declared Patreon cover target with a direct export-approved imag
     media: [
       {
         source: 'covers/media/public-ready/overgrid-newtab.png',
-        destination: 'covers/media/overgrid-newtab.png',
+        destination: 'covers/media/generated/overgrid-newtab.png',
       },
     ],
   })
