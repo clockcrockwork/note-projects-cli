@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, writeFile, copyFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -18,9 +18,11 @@ const REPOSITORY = 'clockcrockwork/patreon'
 const REPOSITORY_NAME = 'patreon'
 const MANIFEST_PATH = 'covers/public-render-manifest.json'
 const TARGET_RE = /^PTN-COVER-[A-Z0-9-]+$/
-const SAFE_SOURCE_RE = /^covers\/media\/public-ready\/[a-z0-9][a-z0-9._-]*\.png$/
-const SAFE_DEST_RE = /^covers\/media\/(?:generated|public-ready)\/[a-z0-9][a-z0-9._-]*\.png$/
+const SAFE_SOURCE_RE = /^covers\/media\/public-ready\/[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g)$/
+const SAFE_PART_RE = /^covers\/media\/public-ready\/_chunks\/[a-z0-9][a-z0-9._/-]*\.b64part$/
+const SAFE_DEST_RE = /^covers\/media\/(?:generated|public-ready)\/[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g)$/
 const SAFE_REQUEST_RE = /^covers\/requests\/[a-z0-9][a-z0-9._-]*\.yaml$/
+const SHA256_RE = /^[0-9a-f]{64}$/
 const PNG_SIZES = new Map([
   ['1920x1080', [1920, 1080]],
   ['320x180', [320, 180]],
@@ -34,6 +36,7 @@ function fail(message) {
 function safeResultDiagnostic(error) {
   const raw = error instanceof Error ? error.message : String(error)
   if (/PUBLIC_READY_MEDIA_MISSING/.test(raw)) return 'PUBLIC_READY_MEDIA_MISSING'
+  if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH)_INVALID/.test(raw)) return 'PUBLIC_READY_MEDIA_INVALID'
   if (/TARGET_NOT_DECLARED/.test(raw)) return 'TARGET_NOT_DECLARED'
   if (/SOURCE_/.test(raw) || /GITHUB_API_/.test(raw)) return 'PRIVATE_SOURCE_UNAVAILABLE'
   if (/NPM_CI_FAILED/.test(raw)) return 'DEPENDENCY_INSTALL_FAILED'
@@ -54,9 +57,25 @@ export function validateManifest(raw, target) {
   if (!Array.isArray(entry.media) || entry.media.length < 1 || entry.media.length > 4) fail('PUBLIC_RENDER_MEDIA_INVALID')
   const media = entry.media.map((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) fail('PUBLIC_RENDER_MEDIA_INVALID')
-    if (!SAFE_SOURCE_RE.test(item.source ?? '')) fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
+    const hasSource = typeof item.source === 'string'
+    const hasParts = Array.isArray(item.source_parts)
+    if (hasSource === hasParts) fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
     if (!SAFE_DEST_RE.test(item.destination ?? '')) fail('PUBLIC_RENDER_MEDIA_DESTINATION_INVALID')
-    return { source: item.source, destination: item.destination }
+    if (item.sha256 != null && !SHA256_RE.test(item.sha256)) fail('PUBLIC_RENDER_MEDIA_HASH_INVALID')
+
+    if (hasSource) {
+      if (!SAFE_SOURCE_RE.test(item.source)) fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
+      return { source: item.source, destination: item.destination, ...(item.sha256 ? { sha256: item.sha256 } : {}) }
+    }
+
+    if (item.source_parts.length < 1 || item.source_parts.length > 32 || item.source_parts.some((part) => !SAFE_PART_RE.test(part))) {
+      fail('PUBLIC_RENDER_MEDIA_SOURCE_INVALID')
+    }
+    return {
+      source_parts: [...item.source_parts],
+      destination: item.destination,
+      ...(item.sha256 ? { sha256: item.sha256 } : {}),
+    }
   })
   return { request: entry.request, media }
 }
@@ -122,6 +141,28 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+async function loadDeclaredMedia({ token, sourceSha, item }) {
+  try {
+    let bytes
+    if (item.source) {
+      bytes = await fetchTextFile({ token, sha: sourceSha, path: item.source, repository: REPOSITORY })
+    } else {
+      let encoded = ''
+      for (const part of item.source_parts) {
+        const partBytes = await fetchTextFile({ token, sha: sourceSha, path: part, repository: REPOSITORY })
+        encoded += partBytes.toString('ascii').trim()
+      }
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 !== 0) fail('PUBLIC_READY_MEDIA_ENCODING_INVALID')
+      bytes = Buffer.from(encoded, 'base64')
+    }
+    if (item.sha256 && sha256(bytes) !== item.sha256) fail('PUBLIC_READY_MEDIA_HASH_INVALID')
+    return bytes
+  } catch (error) {
+    if (/PUBLIC_READY_MEDIA_(?:ENCODING|HASH)_INVALID/.test(error instanceof Error ? error.message : String(error))) throw error
+    fail('PUBLIC_READY_MEDIA_MISSING')
+  }
+}
+
 export async function collectSafeArtifact(outDir, artifactDir, metadata) {
   const files = (await readdir(outDir)).filter((name) => name.endsWith('.png')).sort()
   if (files.length !== 3) fail('ARTIFACT_OUTPUT_COUNT_INVALID')
@@ -185,17 +226,12 @@ async function main() {
     const entry = validateManifest(JSON.parse(manifestBytes.toString('utf8')), request.target)
 
     root = await mkdtemp(path.join(os.tmpdir(), 'patreon-cover-'))
-    const exportedTooling = await exportTrustedTooling({ token, sha: toolingSha, root })
+    await exportTrustedTooling({ token, sha: toolingSha, root })
     const requestBytes = await fetchTextFile({ token, sha: sourceSha, path: entry.request, repository: REPOSITORY })
     await writeBuffer(root, entry.request, requestBytes)
 
     for (const item of entry.media) {
-      let bytes
-      try {
-        bytes = await fetchTextFile({ token, sha: sourceSha, path: item.source, repository: REPOSITORY })
-      } catch {
-        fail('PUBLIC_READY_MEDIA_MISSING')
-      }
+      const bytes = await loadDeclaredMedia({ token, sourceSha, item })
       await writeBuffer(root, item.destination, bytes)
     }
 
