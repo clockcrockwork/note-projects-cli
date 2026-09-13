@@ -1,0 +1,103 @@
+name: Patreon cover render
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Declared PTN-COVER-* target from the private Patreon render manifest
+        required: true
+        type: string
+      source:
+        description: Private Patreon source revision
+        required: true
+        default: main
+        type: choice
+        options:
+          - main
+          - pull_request
+      pull_request:
+        description: Numeric Patreon PR number when source=pull_request
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: patreon-cover-${{ inputs.target }}-${{ inputs.source }}-${{ inputs.pull_request }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: private-source-read
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: request
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          SOURCE: ${{ inputs.source }}
+          PR: ${{ inputs.pull_request }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET" =~ ^PTN-COVER-[A-Z0-9-]+$ ]]; then
+            echo 'REQUEST_TARGET_INVALID' >&2
+            exit 2
+          fi
+          if [[ "$SOURCE" == 'main' ]]; then
+            if [[ -n "$PR" ]]; then
+              echo 'REQUEST_PR_NOT_ALLOWED' >&2
+              exit 2
+            fi
+            pr_json='null'
+          elif [[ "$SOURCE" == 'pull_request' ]]; then
+            if [[ ! "$PR" =~ ^[1-9][0-9]*$ ]]; then
+              echo 'REQUEST_PR_INVALID' >&2
+              exit 2
+            fi
+            pr_json="$PR"
+          else
+            echo 'REQUEST_SOURCE_INVALID' >&2
+            exit 2
+          fi
+          request_json="$(printf '{"task":"patreon-cover-render","target":"%s","source":"%s","pull_request":%s}' "$TARGET" "$SOURCE" "$pr_json")"
+          printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+      - id: run
+        continue-on-error: true
+        env:
+          REQUEST_JSON: ${{ steps.request.outputs.request_json }}
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+        run: node scripts/run-patreon-cover-render.mjs
+      - name: Upload publication-safe cover artifact
+        if: ${{ always() && steps.run.outputs.artifact_path != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.run.outputs.artifact_name }}
+          path: ${{ steps.run.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RESULT_JSON: ${{ steps.run.outputs.result_json }}
+        run: |
+          printf '### Patreon cover render\n\n' >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$RESULT_JSON" ]]; then
+            printf '`%s`\n' "$RESULT_JSON" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '`PATREON_COVER_RENDER_NO_RESULT`\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve task failure
+        if: ${{ steps.run.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
