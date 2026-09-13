@@ -23,6 +23,56 @@ No public input may choose an arbitrary command, repository URL, branch/tag/SHA,
 
 Publication tasks remain typed and follow their separately qualified activation boundaries.
 
+## Publication Preview execution boundary
+
+`publication-preview` is the primary machine entry point for protected Publication Preview delivery. It is **not** a request for the Owner to run `npm`, Vercel CLI, or copy a Vercel token into an Article-specific session.
+
+Canonical operational shape:
+
+```text
+Human / ChatGPT request
+  -> this public note-projects-cli repository
+  -> typed task: publication-preview
+  -> public GitHub-hosted ubuntu-latest job
+  -> fixed private-source ingress from clockcrockwork/note-projects
+  -> exact SOURCE_SHA preview build
+  -> clean target-specific payload
+  -> protected Vercel deployment + access probe
+  -> protected URL handoff
+```
+
+This boundary matters when the private `clockcrockwork/note-projects` repository has exhausted or unavailable Actions capacity:
+
+```text
+private note-projects Actions unavailable
+!=
+public note-projects-cli publication-preview unavailable
+```
+
+The public workflow itself still uses GitHub Actions and a GitHub-hosted runner. Therefore phrases such as “Publication Preview does not use Actions” or “Publication Preview is runner-independent” are inaccurate. The correct statement is that the canonical preview route is independent of **private `note-projects` Actions quota / runner allocation**, because execution occurs here on the public plane.
+
+Before declaring Publication Preview unavailable, check this public typed route itself. A failed private workflow with `runner_id=0`, `steps=[]`, private quota exhaustion, or a blocked qualified render lane is not evidence that `publication-preview` is unavailable.
+
+Normal operation must not require the Owner to have a PC or terminal. Do not ask the Owner to run or provide any of the following merely to create a normal preview:
+
+```text
+npm ci
+SOURCE_SHA=... npm run build:publication-preview ...
+npx vercel deploy ...
+vercel login
+per-Article VERCEL_TOKEN creation / copy / paste
+```
+
+Those are implementation/debugging/break-glass mechanisms. If this public typed task itself is unavailable, fail closed and report the execution-plane problem; do not silently convert it into a Human local-shell requirement.
+
+Real dogfood evidence:
+
+- ART-012 reached protected Publication Preview end-to-end on 2026-09-11.
+- ART-008: Issue #126 / run `34685544484`, `publication_preview` PASS on public `ubuntu-latest`.
+- ART-009: Issue #127 / run `34685548387`, `publication_preview` PASS on public `ubuntu-latest`.
+
+The Vercel credential is an infrastructure activation secret. Once wired to the runner, it is not a per-Article Human handoff.
+
 ## One-time activation boundary
 
 The privileged workflow expects GitHub Actions environment `private-source-read` with these secrets:
