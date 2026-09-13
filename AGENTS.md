@@ -24,3 +24,31 @@ Do not broaden this repository's task surface because it is convenient. If a run
 - secret-bearing third-party actions must be pinned to full commit SHA
 
 If a required execution plane is unavailable, report a machine HOLD. Do not turn the missing executor into a per-PR Human shell command.
+
+## Publication Preview route guard
+
+For a normal Publication Preview request, use this repository's typed `publication-preview` task as the primary execution route.
+
+```text
+Human / ChatGPT request
+-> public note-projects-cli Actions
+-> publication-preview
+-> fixed private-source ingress
+-> target-specific preview build
+-> protected Vercel deployment / probe
+-> protected URL handoff
+```
+
+Do not infer this route is unavailable merely because private `clockcrockwork/note-projects` Actions are quota-limited, have `runner_id=0`, have `steps=[]`, or the qualified private/render lane is blocked.
+
+The route **does use public GitHub Actions and a GitHub-hosted runner**. The correct boundary is:
+
+```text
+independent of private note-projects Actions quota
+!=
+independent of Actions / runners
+```
+
+Do not redirect a normal preview request to Owner-local `npm`, Vercel CLI, Vercel login, or per-Article `VERCEL_TOKEN` creation/copy/paste.
+
+If this public typed route itself is unavailable, fail closed rather than inventing a Human local-shell fallback.
