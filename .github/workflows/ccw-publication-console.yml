@@ -105,6 +105,7 @@ jobs:
           printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
       - id: run
         continue-on-error: true
+        shell: bash
         env:
           REQUEST_JSON: ${{ steps.request.outputs.request_json }}
           NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
@@ -112,7 +113,13 @@ jobs:
           NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: team_VXDwElBdF8kzJnYTyFFcDupn
-        run: node scripts/run-ccw-publication-console.mjs
+        run: |
+          set -euo pipefail
+          # The isolated Node container may run under a different UID from the
+          # GitHub-hosted runner. Make only this ephemeral task's generated
+          # temp tree container-writable; it is deleted by the runner script.
+          umask 000
+          node scripts/run-ccw-publication-console.mjs
       - name: Summary
         if: ${{ always() }}
         shell: bash
