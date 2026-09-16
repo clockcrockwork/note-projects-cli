@@ -1,0 +1,132 @@
+name: CCW publication console
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Private Patreon source revision
+        required: true
+        default: main
+        type: choice
+        options:
+          - main
+          - pull_request
+      pull_request:
+        description: Numeric Patreon PR number when source=pull_request
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - requests/ccw-publication-console.json
+
+permissions: {}
+
+concurrency:
+  group: ccw-publication-console
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: private-source-read
+    permissions:
+      contents: read
+    outputs:
+      result_json: ${{ steps.run.outputs.result_json }}
+      source_sha: ${{ steps.run.outputs.source_sha }}
+      status: ${{ steps.run.outputs.status }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: request
+        shell: bash
+        env:
+          SOURCE: ${{ inputs.source }}
+          PR: ${{ inputs.pull_request }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            request_json="$(node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const raw = JSON.parse(fs.readFileSync('requests/ccw-publication-console.json', 'utf8'))
+          const keys = Object.keys(raw).sort()
+          if (JSON.stringify(keys) !== JSON.stringify(['pull_request', 'source'])) {
+            console.error('REQUEST_SHAPE_INVALID')
+            process.exit(2)
+          }
+          if (!['main', 'pull_request'].includes(raw.source)) {
+            console.error('REQUEST_SOURCE_INVALID')
+            process.exit(2)
+          }
+          if (raw.source === 'pull_request') {
+            if (!Number.isSafeInteger(raw.pull_request) || raw.pull_request < 1) {
+              console.error('REQUEST_PR_INVALID')
+              process.exit(2)
+            }
+          } else if (raw.pull_request !== null) {
+            console.error('REQUEST_PR_NOT_ALLOWED')
+            process.exit(2)
+          }
+          process.stdout.write(JSON.stringify({
+            task: 'publication-preview',
+            target: 'CCW-CONSOLE',
+            source: raw.source,
+            pull_request: raw.pull_request,
+          }))
+          NODE
+            )"
+            printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$SOURCE" == 'main' ]]; then
+            if [[ -n "$PR" ]]; then
+              echo 'REQUEST_PR_NOT_ALLOWED' >&2
+              exit 2
+            fi
+            pr_json='null'
+          elif [[ "$SOURCE" == 'pull_request' ]]; then
+            if [[ ! "$PR" =~ ^[1-9][0-9]*$ ]]; then
+              echo 'REQUEST_PR_INVALID' >&2
+              exit 2
+            fi
+            pr_json="$PR"
+          else
+            echo 'REQUEST_SOURCE_INVALID' >&2
+            exit 2
+          fi
+          request_json="$(printf '{"task":"publication-preview","target":"CCW-CONSOLE","source":"%s","pull_request":%s}' "$SOURCE" "$pr_json")"
+          printf 'request_json=%s\n' "$request_json" >> "$GITHUB_OUTPUT"
+      - id: run
+        continue-on-error: true
+        env:
+          REQUEST_JSON: ${{ steps.request.outputs.request_json }}
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: team_VXDwElBdF8kzJnYTyFFcDupn
+        run: node scripts/run-ccw-publication-console.mjs
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RESULT_JSON: ${{ steps.run.outputs.result_json }}
+        run: |
+          printf '### CCW publication console\n\n' >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$RESULT_JSON" ]]; then
+            printf '`%s`\n' "$RESULT_JSON" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '`CCW_PUBLICATION_CONSOLE_NO_RESULT`\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf '\nProtected URL is handed off only inside the private Patreon PR when source=pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve task failure
+        if: ${{ steps.run.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
