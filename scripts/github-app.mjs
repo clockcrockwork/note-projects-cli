@@ -151,15 +151,25 @@ export async function resolvePullRequestSource({ token, repository = REPOSITORY,
   return { sourceSha, changedPaths: [...new Set(changedPaths)].sort() }
 }
 
-export async function resolveSource({ token, source, pullRequest }) {
-  const main = await api(`/repos/${REPOSITORY}/commits/main`, { token })
+export async function resolveSource({
+  token,
+  source,
+  pullRequest,
+  repository = REPOSITORY,
+}) {
+  const targetRepository = validateRepository(repository)
+  const main = await api(`/repos/${targetRepository}/commits/main`, { token })
   const toolingSha = main?.sha
   if (!/^[0-9a-f]{40}$/.test(toolingSha ?? '')) throw new Error('TOOLING_SHA_INVALID')
 
   if (source === 'main') return { toolingSha, sourceSha: toolingSha, changedPaths: [] }
   if (source !== 'pull_request' || !Number.isSafeInteger(pullRequest)) throw new Error('SOURCE_REQUEST_INVALID')
 
-  const resolved = await resolvePullRequestSource({ token, pullRequest })
+  const resolved = await resolvePullRequestSource({
+    token,
+    repository: targetRepository,
+    pullRequest,
+  })
   return { toolingSha, ...resolved }
 }
 
