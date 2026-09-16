@@ -68,7 +68,8 @@ function sourcePaths(listing) {
     .filter((path) =>
       path === 'tools/publication-console/build.mjs' ||
       /^content\/publications\/[^/]+\.md$/.test(path) ||
-      /^content\/note-jp\/[^/]+\.md$/.test(path),
+      /^content\/note-jp\/[^/]+\.md$/.test(path) ||
+      /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
     )
     .sort()
   if (!allowed.includes('tools/publication-console/build.mjs')) throw new Error('PUBLICATION_CONSOLE_BUILDER_MISSING')
