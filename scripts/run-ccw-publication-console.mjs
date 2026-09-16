@@ -92,8 +92,6 @@ async function materializeSource({ token, listing, sourceSha, workspaceRoot }) {
     )
   }
   await writeSafe(workspaceRoot, '.source-sha', Buffer.from(`${sourceSha}\n`, 'utf8'))
-  // Docker's nested writable bind mount must have a mount point inside the
-  // read-only private-source tree before the parent bind is attached.
   await mkdir(resolve(workspaceRoot, 'public-view/out'), { recursive: true })
 }
 
@@ -119,16 +117,25 @@ function runCaptured(argv, { cwd, timeout = 10 * 60_000, env = process.env } = {
   })
   return {
     ok: child.status === 0 && !child.error,
+    status: child.status,
+    signal: child.signal,
     stdout: child.stdout ?? '',
     stderr: child.stderr ?? '',
   }
 }
 
-function buildFailureDiagnostic(stderr) {
-  const explicit = String(stderr ?? '').match(/PUBLICATION_CONSOLE:([A-Z0-9_]+)/)
+function buildFailureDiagnostic(run) {
+  const stderr = String(run.stderr ?? '')
+  const explicit = stderr.match(/PUBLICATION_CONSOLE:([A-Z0-9_]+)/)
   if (explicit) return explicit[1]
-  if (/EROFS|read-only file system/i.test(stderr ?? '')) return 'PUBLICATION_CONSOLE_OUTPUT_MOUNT_READONLY'
-  if (/ENOENT|no such file or directory/i.test(stderr ?? '')) return 'PUBLICATION_CONSOLE_BUILD_INPUT_MISSING'
+  if (/SyntaxError/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILDER_SYNTAX_INVALID'
+  if (/TypeError|ReferenceError/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILDER_RUNTIME_EXCEPTION'
+  if (/EROFS|read-only file system/i.test(stderr)) return 'PUBLICATION_CONSOLE_OUTPUT_MOUNT_READONLY'
+  if (/EACCES|permission denied/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILD_PERMISSION_DENIED'
+  if (/ENOENT|no such file or directory/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILD_INPUT_MISSING'
+  if (/docker:|invalid mount|mount.*failed/i.test(stderr)) return 'PUBLICATION_CONSOLE_DOCKER_MOUNT_FAILED'
+  if (run.status === 125) return 'PUBLICATION_CONSOLE_DOCKER_INVOCATION_FAILED'
+  if (run.signal) return 'PUBLICATION_CONSOLE_BUILD_TERMINATED'
   return 'PUBLICATION_CONSOLE_BUILD_FAILED'
 }
 
@@ -141,14 +148,14 @@ function buildConsole({ image, workspaceRoot, outputRoot }) {
       'docker', 'run', '--rm', '--network', 'none', '--cap-drop', 'ALL',
       '--security-opt', 'no-new-privileges', '--pids-limit', '256',
       '-e', 'CI=1', '-e', 'NO_COLOR=1', '-e', 'HOME=/tmp',
-      '-v', `${workspaceRoot}:/workspace:ro`,
+      '-v', `${workspaceRoot}:/workspace`,
       '-v', `${outputRoot}:/workspace/public-view/out`,
       '-w', '/workspace', image,
       'node', 'tools/publication-console/build.mjs',
     ],
     { timeout: 5 * 60_000, env: childEnv() },
   )
-  if (!run.ok) throw new Error(buildFailureDiagnostic(run.stderr))
+  if (!run.ok) throw new Error(buildFailureDiagnostic(run))
 }
 
 function assertNoRemoteLoads(html) {
