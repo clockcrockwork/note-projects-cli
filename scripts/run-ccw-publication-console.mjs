@@ -92,6 +92,9 @@ async function materializeSource({ token, listing, sourceSha, workspaceRoot }) {
     )
   }
   await writeSafe(workspaceRoot, '.source-sha', Buffer.from(`${sourceSha}\n`, 'utf8'))
+  // Docker's nested writable bind mount must have a mount point inside the
+  // read-only private-source tree before the parent bind is attached.
+  await mkdir(resolve(workspaceRoot, 'public-view/out'), { recursive: true })
 }
 
 function childEnv(extra = {}) {
@@ -121,6 +124,14 @@ function runCaptured(argv, { cwd, timeout = 10 * 60_000, env = process.env } = {
   }
 }
 
+function buildFailureDiagnostic(stderr) {
+  const explicit = String(stderr ?? '').match(/PUBLICATION_CONSOLE:([A-Z0-9_]+)/)
+  if (explicit) return explicit[1]
+  if (/EROFS|read-only file system/i.test(stderr ?? '')) return 'PUBLICATION_CONSOLE_OUTPUT_MOUNT_READONLY'
+  if (/ENOENT|no such file or directory/i.test(stderr ?? '')) return 'PUBLICATION_CONSOLE_BUILD_INPUT_MISSING'
+  return 'PUBLICATION_CONSOLE_BUILD_FAILED'
+}
+
 function buildConsole({ image, workspaceRoot, outputRoot }) {
   const pull = runCaptured(['docker', 'pull', image], { timeout: 10 * 60_000, env: childEnv() })
   if (!pull.ok) throw new Error('PUBLICATION_CONSOLE_RUNTIME_UNAVAILABLE')
@@ -137,7 +148,7 @@ function buildConsole({ image, workspaceRoot, outputRoot }) {
     ],
     { timeout: 5 * 60_000, env: childEnv() },
   )
-  if (!run.ok) throw new Error('PUBLICATION_CONSOLE_BUILD_FAILED')
+  if (!run.ok) throw new Error(buildFailureDiagnostic(run.stderr))
 }
 
 function assertNoRemoteLoads(html) {
