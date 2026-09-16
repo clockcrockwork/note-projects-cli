@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 const REPOSITORY = 'clockcrockwork/note-projects-cli'
 const STATUSES = new Set(['PASS', 'FAIL', 'HOLD'])
 const SHA_RE = /^[0-9a-f]{40}$/
-const TARGET_RE = /^(?:ART-\d+|FDR-[A-Z0-9-]+|CCW-CONSOLE)$/
+const TARGET_RE = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
 const DIAGNOSTIC_RE = /^[A-Z0-9_]+$/
 
 function code(value) {
