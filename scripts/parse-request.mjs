@@ -9,7 +9,7 @@ export const TASKS = new Set([
   'publication-preview',
 ])
 export const SOURCES = new Set(['main', 'pull_request'])
-const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+|CCW-CONSOLE)$/
+const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
 const PR_ONLY_TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
 
 function normalized(value) {
