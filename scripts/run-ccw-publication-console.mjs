@@ -195,6 +195,24 @@ function protectionProbePassed(response) {
   }
 }
 
+async function probeProtection(url) {
+  const attempts = 15
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const probeUrl = new URL(url)
+    probeUrl.searchParams.set('__ccw_protection_probe', `${Date.now()}-${attempt}`)
+    const probe = await fetch(probeUrl, {
+      redirect: 'manual',
+      headers: {
+        'cache-control': 'no-cache, no-store, max-age=0',
+        pragma: 'no-cache',
+      },
+    })
+    if (protectionProbePassed(probe)) return probe.status
+    if (attempt < attempts) await new Promise((resolvePromise) => setTimeout(resolvePromise, 4000))
+  }
+  throw new Error('VERCEL_PROTECTION_PROBE_FAILED')
+}
+
 async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
   const query = new URLSearchParams({ teamId })
   const getProject = await fetch(`${API}/v9/projects/${encodeURIComponent(PREVIEW_PROJECT_NAME)}?${query}`, {
@@ -210,6 +228,12 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
   })
   const protectedProject = await jsonOrThrow(protect, 'VERCEL_PROTECTION_FAILED')
   if (protectedProject?.ssoProtection?.deploymentType !== 'all') throw new Error('VERCEL_PROTECTION_NOT_CONFIRMED')
+
+  const verifyProject = await fetch(`${API}/v9/projects/${encodeURIComponent(project.id)}?${query}`, {
+    headers: authHeaders(token),
+  })
+  const verifiedProject = await jsonOrThrow(verifyProject, 'VERCEL_PROJECT_RECHECK_FAILED')
+  if (verifiedProject?.ssoProtection?.deploymentType !== 'all') throw new Error('VERCEL_PROTECTION_NOT_PERSISTED')
 
   const htmlSha = createHash('sha256').update(html).digest('hex')
   const create = await fetch(`${API}/v13/deployments?${query}`, {
@@ -239,9 +263,8 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
   if (deployment.readyState !== 'READY') throw new Error('VERCEL_DEPLOY_NOT_READY')
   const url = `https://${deployment.url}`
   if (!URL_RE.test(url)) throw new Error('VERCEL_DEPLOY_URL_INVALID')
-  const probe = await fetch(url, { redirect: 'manual' })
-  if (!protectionProbePassed(probe)) throw new Error('VERCEL_PROTECTION_PROBE_FAILED')
-  return { url, htmlSha, deploymentId: deployment.id, protectionStatus: probe.status }
+  const protectionStatus = await probeProtection(url)
+  return { url, htmlSha, deploymentId: deployment.id, protectionStatus }
 }
 
 async function upsertPrivatePrComment({ token, pullRequest, sourceSha, deployment }) {
@@ -257,6 +280,7 @@ async function upsertPrivatePrComment({ token, pullRequest, sourceSha, deploymen
     `- SOURCE_SHA: \`${sourceSha}\``,
     `- protected URL: ${deployment.url}`,
     `- HTML SHA-256: \`${deployment.htmlSha}\``,
+    `- anonymous protection probe: HTTP ${deployment.protectionStatus}`,
     '',
     'Vercel Authentication was asserted and anonymous access was rejected before this URL was reported.',
   ].join('\n')
