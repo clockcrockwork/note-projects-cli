@@ -16,6 +16,7 @@ const PRIVATE_REPOSITORY = 'clockcrockwork/patreon'
 const PRIVATE_REPOSITORY_NAME = 'patreon'
 const TARGET = 'CCW-CONSOLE'
 const PREVIEW_PROJECT_NAME = 'note-projects-publication-preview'
+const STABLE_CONSOLE_URL = `https://${PREVIEW_PROJECT_NAME}.vercel.app`
 const SHA_RE = /^[0-9a-f]{40}$/
 const URL_RE = /^https:\/\/[A-Za-z0-9.-]+\.vercel\.app\/?$/
 const API = 'https://api.vercel.com'
@@ -213,7 +214,7 @@ async function probeProtection(url) {
   throw new Error('VERCEL_PROTECTION_PROBE_FAILED')
 }
 
-async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
+async function deployProtectedConsole({ token, teamId, html, sourceSha, production }) {
   const query = new URLSearchParams({ teamId })
   const getProject = await fetch(`${API}/v9/projects/${encodeURIComponent(PREVIEW_PROJECT_NAME)}?${query}`, {
     headers: authHeaders(token),
@@ -236,19 +237,23 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
   if (verifiedProject?.ssoProtection?.deploymentType !== 'all') throw new Error('VERCEL_PROTECTION_NOT_PERSISTED')
 
   const htmlSha = createHash('sha256').update(html).digest('hex')
+  const requestBody = {
+    name: PREVIEW_PROJECT_NAME,
+    project: project.id,
+    projectSettings: { framework: null },
+    meta: {
+      publication_preview_target: 'ccw-console',
+      publication_preview_source: sourceSha,
+      publication_preview_channel: production ? 'main' : 'pull-request',
+    },
+    files: [{ file: 'index.html', data: html }],
+  }
+  if (production) requestBody.target = 'production'
+
   const create = await fetch(`${API}/v13/deployments?${query}`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({
-      name: PREVIEW_PROJECT_NAME,
-      project: project.id,
-      projectSettings: { framework: null },
-      meta: {
-        publication_preview_target: 'ccw-console',
-        publication_preview_source: sourceSha,
-      },
-      files: [{ file: 'index.html', data: html }],
-    }),
+    body: JSON.stringify(requestBody),
   })
   let deployment = await jsonOrThrow(create, 'VERCEL_DEPLOY_FAILED')
   const deadline = Date.now() + 120_000
@@ -261,10 +266,32 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha }) {
     deployment = await jsonOrThrow(poll, 'VERCEL_DEPLOY_POLL_FAILED')
   }
   if (deployment.readyState !== 'READY') throw new Error('VERCEL_DEPLOY_NOT_READY')
-  const url = `https://${deployment.url}`
-  if (!URL_RE.test(url)) throw new Error('VERCEL_DEPLOY_URL_INVALID')
-  const protectionStatus = await probeProtection(url)
-  return { url, htmlSha, deploymentId: deployment.id, protectionStatus }
+
+  const deploymentUrl = `https://${deployment.url}`
+  if (!URL_RE.test(deploymentUrl)) throw new Error('VERCEL_DEPLOY_URL_INVALID')
+  const deploymentProtectionStatus = await probeProtection(deploymentUrl)
+
+  if (production) {
+    if (!URL_RE.test(STABLE_CONSOLE_URL)) throw new Error('VERCEL_STABLE_URL_INVALID')
+    const stableProtectionStatus = await probeProtection(STABLE_CONSOLE_URL)
+    return {
+      url: STABLE_CONSOLE_URL,
+      deploymentUrl,
+      htmlSha,
+      deploymentId: deployment.id,
+      protectionStatus: stableProtectionStatus,
+      deploymentProtectionStatus,
+    }
+  }
+
+  return {
+    url: deploymentUrl,
+    deploymentUrl,
+    htmlSha,
+    deploymentId: deployment.id,
+    protectionStatus: deploymentProtectionStatus,
+    deploymentProtectionStatus,
+  }
 }
 
 async function upsertPrivatePrComment({ token, pullRequest, sourceSha, deployment }) {
@@ -373,7 +400,13 @@ async function main() {
     assertNoRemoteLoads(html)
 
     phase = 'VERCEL_DEPLOY'
-    const deployment = await deployProtectedConsole({ token: vercelToken, teamId, html, sourceSha })
+    const deployment = await deployProtectedConsole({
+      token: vercelToken,
+      teamId,
+      html,
+      sourceSha,
+      production: request.source === 'main',
+    })
 
     if (request.source === 'pull_request') {
       phase = 'PRIVATE_COMMENT_TOKEN'
