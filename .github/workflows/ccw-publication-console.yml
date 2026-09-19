@@ -1,6 +1,8 @@
 name: CCW publication console
 
 on:
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       source:
@@ -51,7 +53,7 @@ jobs:
           PR: ${{ inputs.pull_request }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == 'push' || "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
             request_json="$(node --input-type=module <<'NODE'
           import fs from 'node:fs'
           const raw = JSON.parse(fs.readFileSync('requests/ccw-publication-console.json', 'utf8'))

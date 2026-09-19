@@ -185,6 +185,38 @@ async function jsonOrThrow(response, diagnostic) {
   return data
 }
 
+async function productionConsoleIsCurrent({ token, teamId, sourceSha }) {
+  const projectQuery = new URLSearchParams({ teamId })
+  const projectResponse = await fetch(`${API}/v9/projects/${encodeURIComponent(PREVIEW_PROJECT_NAME)}?${projectQuery}`, {
+    headers: authHeaders(token),
+  })
+  if (!projectResponse.ok) return false
+
+  let project = {}
+  try { project = await projectResponse.json() } catch { return false }
+  if (!/^prj_[A-Za-z0-9]+$/.test(project?.id ?? '')) return false
+
+  const deploymentsQuery = new URLSearchParams({
+    teamId,
+    projectId: project.id,
+    target: 'production',
+    limit: '10',
+  })
+  const deploymentsResponse = await fetch(`${API}/v6/deployments?${deploymentsQuery}`, {
+    headers: authHeaders(token),
+  })
+  if (!deploymentsResponse.ok) return false
+
+  let payload = {}
+  try { payload = await deploymentsResponse.json() } catch { return false }
+  const deployments = Array.isArray(payload?.deployments) ? payload.deployments : []
+  return deployments.some((deployment) =>
+    deployment?.readyState === 'READY' &&
+    deployment?.meta?.publication_preview_target === 'ccw-console' &&
+    deployment?.meta?.publication_preview_source === sourceSha
+  )
+}
+
 function protectionProbePassed(response) {
   if ([401, 403].includes(response.status)) return true
   if (![301, 302, 303, 307, 308].includes(response.status)) return false
@@ -383,6 +415,20 @@ async function main() {
     })
     sourceSha = resolved.sourceSha
     toolingSha = resolved.toolingSha
+
+    phase = 'CURRENTNESS_CHECK'
+    if (
+      request.source === 'main' &&
+      await productionConsoleIsCurrent({ token: vercelToken, teamId, sourceSha })
+    ) {
+      await emit({
+        status: 'PASS',
+        source_sha: sourceSha,
+        tooling_sha: toolingSha,
+        diagnostic: 'PUBLICATION_CONSOLE_ALREADY_CURRENT',
+      })
+      return
+    }
 
     phase = 'SOURCE_EXPORT'
     const listing = await listCompleteTree({ token: sourceToken, sha: sourceSha, repository: PRIVATE_REPOSITORY })
