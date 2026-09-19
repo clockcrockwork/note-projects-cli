@@ -185,7 +185,16 @@ async function jsonOrThrow(response, diagnostic) {
   return data
 }
 
-async function productionConsoleIsCurrent({ token, teamId, sourceSha }) {
+function findFileUid(entries, name) {
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.type === 'file' && entry?.name === name && typeof entry.uid === 'string') return entry.uid
+    const nested = findFileUid(entry?.children, name)
+    if (nested) return nested
+  }
+  return null
+}
+
+async function productionConsoleMatchesHtml({ token, teamId, html }) {
   const projectQuery = new URLSearchParams({ teamId })
   const projectResponse = await fetch(`${API}/v9/projects/${encodeURIComponent(PREVIEW_PROJECT_NAME)}?${projectQuery}`, {
     headers: authHeaders(token),
@@ -200,7 +209,8 @@ async function productionConsoleIsCurrent({ token, teamId, sourceSha }) {
     teamId,
     projectId: project.id,
     target: 'production',
-    limit: '10',
+    state: 'READY',
+    limit: '1',
   })
   const deploymentsResponse = await fetch(`${API}/v6/deployments?${deploymentsQuery}`, {
     headers: authHeaders(token),
@@ -209,14 +219,25 @@ async function productionConsoleIsCurrent({ token, teamId, sourceSha }) {
 
   let payload = {}
   try { payload = await deploymentsResponse.json() } catch { return false }
-  const deployments = Array.isArray(payload?.deployments) ? payload.deployments : []
-  return deployments.some((deployment) =>
-    deployment?.readyState === 'READY' &&
-    deployment?.meta?.publication_preview_target === 'ccw-console' &&
-    deployment?.meta?.publication_preview_source === sourceSha
-  )
-}
+  const deployment = Array.isArray(payload?.deployments) ? payload.deployments[0] : null
+  const deploymentId = deployment?.uid ?? deployment?.id
+  if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId ?? '')) return false
 
+  const filesQuery = new URLSearchParams({ teamId })
+  const filesResponse = await fetch(
+    `${API}/v6/deployments/${encodeURIComponent(deploymentId)}/files?${filesQuery}`,
+    { headers: authHeaders(token) },
+  )
+  if (!filesResponse.ok) return false
+
+  let files = []
+  try { files = await filesResponse.json() } catch { return false }
+  const deployedUid = findFileUid(files, 'index.html')
+  if (!/^[0-9a-f]{40}$/.test(deployedUid ?? '')) return false
+
+  const generatedUid = createHash('sha1').update(html).digest('hex')
+  return deployedUid === generatedUid
+}
 function protectionProbePassed(response) {
   if ([401, 403].includes(response.status)) return true
   if (![301, 302, 303, 307, 308].includes(response.status)) return false
@@ -416,20 +437,6 @@ async function main() {
     sourceSha = resolved.sourceSha
     toolingSha = resolved.toolingSha
 
-    phase = 'CURRENTNESS_CHECK'
-    if (
-      request.source === 'main' &&
-      await productionConsoleIsCurrent({ token: vercelToken, teamId, sourceSha })
-    ) {
-      await emit({
-        status: 'PASS',
-        source_sha: sourceSha,
-        tooling_sha: toolingSha,
-        diagnostic: 'PUBLICATION_CONSOLE_ALREADY_CURRENT',
-      })
-      return
-    }
-
     phase = 'SOURCE_EXPORT'
     const listing = await listCompleteTree({ token: sourceToken, sha: sourceSha, repository: PRIVATE_REPOSITORY })
     await materializeSource({ token: sourceToken, listing, sourceSha, workspaceRoot })
@@ -445,6 +452,21 @@ async function main() {
     await copyFile(generatedPath, cleanPath)
     const html = await readFile(cleanPath, 'utf8')
     assertNoRemoteLoads(html)
+
+    phase = 'CURRENTNESS_CHECK'
+    if (
+      request.source === 'main' &&
+      await productionConsoleMatchesHtml({ token: vercelToken, teamId, html })
+    ) {
+      await probeProtection(STABLE_CONSOLE_URL)
+      await emit({
+        status: 'PASS',
+        source_sha: sourceSha,
+        tooling_sha: toolingSha,
+        diagnostic: 'PUBLICATION_CONSOLE_ALREADY_CURRENT',
+      })
+      return
+    }
 
     phase = 'VERCEL_DEPLOY'
     const deployment = await deployProtectedConsole({
