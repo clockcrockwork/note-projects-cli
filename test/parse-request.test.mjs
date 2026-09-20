@@ -18,6 +18,12 @@ test('accepts owner threads-affiliates verify request as a fixed PR-only task', 
   })
 })
 
+test('accepts owner Patreon verify request as a fixed PR-only task', () => {
+  assert.deepEqual(parseIssueFormBody(body({ task: 'patreon-verify', pr: '46' })), {
+    task: 'patreon-verify', target: null, source: 'pull_request', pull_request: 46,
+  })
+})
+
 test('rejects non-owner before any privileged work can start', () => {
   assert.throws(() => authorizeEvent({ action: 'opened', issue: { author_association: 'MEMBER', body: body() } }), /REQUEST_NOT_OWNER/)
 })
@@ -27,7 +33,7 @@ test('rejects arbitrary task/shell-shaped input', () => {
 })
 
 test('repository verify tasks do not accept main or target', () => {
-  for (const task of ['repository-verify', 'threads-affiliates-verify']) {
+  for (const task of ['repository-verify', 'threads-affiliates-verify', 'patreon-verify']) {
     assert.throws(
       () => parseIssueFormBody(body({ task, source: 'main', pr: '_No response_' })),
       /REQUIRES_PR/,
