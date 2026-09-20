@@ -4,13 +4,14 @@ import { pathToFileURL } from 'node:url'
 export const TASKS = new Set([
   'repository-verify',
   'threads-affiliates-verify',
+  'patreon-verify',
   'verify-publication',
   'publication-prepare',
   'publication-preview',
 ])
 export const SOURCES = new Set(['main', 'pull_request'])
 const TARGET_ID = /^(?:ART-\d+|FDR-[A-Z0-9-]+)$/
-const PR_ONLY_TASKS = new Set(['repository-verify', 'threads-affiliates-verify'])
+const PR_ONLY_TASKS = new Set(['repository-verify', 'threads-affiliates-verify', 'patreon-verify'])
 
 function normalized(value) {
   return typeof value === 'string' ? value.trim() : ''
