@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url'
 
 const REPOSITORY = 'clockcrockwork/note-projects-cli'
-const TASKS = new Set(['repository-verify', 'threads-affiliates-verify', 'verify-publication'])
+const TASKS = new Set(['repository-verify', 'threads-affiliates-verify', 'patreon-verify', 'verify-publication'])
 const STATUSES = new Set(['PASS', 'FAIL', 'HOLD', 'NOT_REQUIRED'])
 const LIVE_RESULTS = new Set(['PASS', 'HOLD', 'RETRYABLE_FAIL'])
 const VIEWPORT_RESULTS = new Set(['PASS', 'HOLD', 'RETRYABLE_FAIL', 'REACHABLE'])
@@ -15,6 +15,11 @@ const PUBLIC_COMMANDS = new Set([
   'npm run gas:build',
   'npm test',
   'npm run build:gas',
+  'npm run workflow:test',
+  'npm run publication-console:test',
+  'npm run public-view:test',
+  'npm run publication-console:build',
+  'npm run public-view:build',
 ])
 
 function code(value) {
