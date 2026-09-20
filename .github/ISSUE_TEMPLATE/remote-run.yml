@@ -10,6 +10,7 @@ body:
       options:
         - repository-verify
         - threads-affiliates-verify
+        - patreon-verify
         - verify-publication
         - publication-prepare
         - publication-preview

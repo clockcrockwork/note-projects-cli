@@ -92,6 +92,36 @@ test('formatResultComment reports only numeric format locations, never file name
   assert.doesNotMatch(comment, /PRIVATE_SENTINEL/)
 })
 
+test('Patreon verify reports only fixed reviewed commands', () => {
+  const result = parseSafeResult(
+    JSON.stringify({
+      task: 'patreon-verify',
+      status: 'PASS',
+      source_sha: 'a'.repeat(40),
+      changed_path_count: 12,
+      exported_file_count: 48,
+      public_commands: [
+        'npm run workflow:test',
+        'npm run publication-console:test',
+        'npm run public-view:test',
+        'npm run publication-console:build',
+        'npm run public-view:build',
+        'cat content/publications/private.md',
+      ],
+      stdout: 'PRIVATE_SENTINEL',
+    }),
+  )
+
+  assert.deepEqual(result.public_commands, [
+    'npm run workflow:test',
+    'npm run publication-console:test',
+    'npm run public-view:test',
+    'npm run publication-console:build',
+    'npm run public-view:build',
+  ])
+  assert.equal('stdout' in result, false)
+})
+
 test('formatResultComment cannot relay unreviewed private output', () => {
   const comment = formatResultComment(
     JSON.stringify({

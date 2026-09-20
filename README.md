@@ -10,6 +10,7 @@ The issue-driven request surface is deliberately closed:
 
 - `repository-verify` — fixed source repository: `clockcrockwork/note-projects`
 - `threads-affiliates-verify` — fixed source repository: `clockcrockwork/threads-affiliates`
+- `patreon-verify` — fixed source repository: `clockcrockwork/patreon`
 - `verify-publication`
 - `publication-prepare`
 - `publication-preview`
@@ -19,6 +20,18 @@ No public input may choose an arbitrary command, repository URL, branch/tag/SHA,
 `repository-verify` resolves a numeric `note-projects` PR to one exact `SOURCE_SHA`, obtains the changed-path plan from reviewed private `main`, installs dependencies before source export, exports only the private-canonical allowlist with its hard denylist, revokes App tokens, and runs the selected public-safe commands inside a `--network none` container. Raw child output is captured rather than streamed to public Actions logs.
 
 `threads-affiliates-verify` provides the same public-CI boundary for the Reply Inbox affiliate owner stack. It resolves only numeric PRs in the fixed `clockcrockwork/threads-affiliates` repository, exports only package/runtime/test/build inputs required by `npm test` and `npm run build:gas`, rejects unsafe paths/symlinks/gitlinks, revokes the private-source token before source execution, and executes the private source only inside a no-network container. Documentation-only changes may return `NOT_REQUIRED` without exporting or executing private source.
+
+`patreon-verify` is the fixed public-CI carrier for the private Patreon publication repository. It accepts only a numeric PR in `clockcrockwork/patreon`, exports only package metadata plus reviewed text/Node inputs under `content/`, `docs/`, and `tools/`, rejects unsafe paths/symlinks/gitlinks, revokes the private-source token, and then runs exactly these commands inside a no-network container:
+
+```text
+npm run workflow:test
+npm run publication-console:test
+npm run public-view:test
+npm run publication-console:build
+npm run public-view:build
+```
+
+It does not export covers/media, GitHub workflows, generated `public-view/out` files, or arbitrary repository paths, and it never accepts an arbitrary command or repository input. Private article text exists only in the ephemeral runner workspace and is not uploaded as an artifact or echoed in the sanitized result comment.
 
 Publication tasks remain typed and follow their separately qualified activation boundaries.
 
