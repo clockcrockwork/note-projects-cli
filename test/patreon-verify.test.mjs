@@ -46,6 +46,7 @@ test('exports only Patreon verification inputs and excludes workflows/media/outp
       'brand/tokei-haishokunin/note/refs/ordinary-article-corner-badge-v1.png',
       'content/publications/welcome.md',
       'content/quips/launch-quips.md',
+      'covers/media/public-ready/example.png',
       'docs/bilingual-authoring-review.md',
       'package-lock.json',
       'package.json',
@@ -88,6 +89,9 @@ test('Patreon export helpers remain narrow', () => {
   assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/refs/x.png'), true)
   assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/refs/x.jpg'), true)
   assert.equal(isExportablePatreonPath('brand/logos/symbol.svg'), false)
+  assert.equal(isExportablePatreonPath('covers/media/public-ready/example.png'), true)
+  assert.equal(isExportablePatreonPath('covers/media/public-ready/example.webp'), true)
+  assert.equal(isExportablePatreonPath('covers/media/private/example.png'), false)
   assert.equal(isExportablePatreonPath('covers/request.yaml'), false)
   assert.equal(isExportablePatreonPath('.github/workflows/x.yml'), false)
   assert.equal(isExportablePatreonPath('public-view/out/x.html'), false)

@@ -74,7 +74,8 @@ function sourcePaths(listing) {
       path === 'tools/workflow/note-creator-review-gate.mjs' ||
       /^content\/publications\/[^/]+\.md$/.test(path) ||
       /^content\/note-jp\/[^/]+\.md$/.test(path) ||
-      /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
+      /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path) ||
+      /^covers\/media\/public-ready\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
     )
     .sort()
   if (!allowed.includes('tools/publication-console/build.mjs')) throw new Error('PUBLICATION_CONSOLE_BUILDER_MISSING')

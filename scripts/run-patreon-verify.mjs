@@ -19,6 +19,8 @@ const SOURCE_ROOTS = ['content/', 'docs/', 'tools/']
 const SOURCE_EXTENSIONS = ['.mjs', '.js', '.json', '.md', '.yaml', '.yml']
 const TOKEI_NOTE_BRAND_ROOT = 'brand/tokei-haishokunin/note/'
 const TOKEI_NOTE_BRAND_EXTENSIONS = ['.md', '.yaml', '.yml', '.svg', '.png', '.jpg', '.jpeg']
+const PUBLIC_READY_COVER_ROOT = 'covers/media/public-ready/'
+const PUBLIC_READY_COVER_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 const ROOT_CANONICALS = new Set(['AGENTS.md'])
 const COMMANDS = [
   ['npm', 'run', 'workflow:test'],
@@ -151,6 +153,9 @@ export function isExportablePatreonPath(path) {
   if (path.startsWith(TOKEI_NOTE_BRAND_ROOT)) {
     return TOKEI_NOTE_BRAND_EXTENSIONS.some((extension) => path.endsWith(extension))
   }
+  if (path.startsWith(PUBLIC_READY_COVER_ROOT)) {
+    return PUBLIC_READY_COVER_EXTENSIONS.some((extension) => path.toLowerCase().endsWith(extension))
+  }
   return false
 }
 
@@ -195,7 +200,8 @@ function requiresMachineVerification(changedPaths) {
       path === 'package-lock.json' ||
       ROOT_CANONICALS.has(path) ||
       SOURCE_ROOTS.some((root) => path.startsWith(root)) ||
-      path.startsWith(TOKEI_NOTE_BRAND_ROOT),
+      path.startsWith(TOKEI_NOTE_BRAND_ROOT) ||
+      path.startsWith(PUBLIC_READY_COVER_ROOT),
   )
 }
 

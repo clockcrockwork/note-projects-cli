@@ -68,3 +68,11 @@ test('CCW console classifies missing imported modules as build input failures', 
     /Cannot find module/,
   );
 });
+
+
+test('CCW console exports approved public-ready cover media', () => {
+  assert.match(
+    source,
+    /\^covers\\\/media\\\/public-ready\\\/.+\\\.\(\?:png\|jpe\?g\|webp\|gif\)\$/,
+  );
+});
