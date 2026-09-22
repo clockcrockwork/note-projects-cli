@@ -37,3 +37,34 @@ test('CCW console exports both creator review gates required by the builder', ()
     /PUBLICATION_CONSOLE_NOTE_CREATOR_REVIEW_GATE_MISSING/,
   );
 });
+
+
+test('CCW console exports creator-review gate dependencies required by the builder', () => {
+  assert.match(
+    source,
+    /path === 'tools\/workflow\/creator-review-gate\.mjs'/,
+  );
+  assert.match(
+    source,
+    /path === 'tools\/workflow\/note-creator-review-gate\.mjs'/,
+  );
+  assert.match(
+    source,
+    /PUBLICATION_CONSOLE_CREATOR_REVIEW_GATE_MISSING/,
+  );
+  assert.match(
+    source,
+    /PUBLICATION_CONSOLE_NOTE_CREATOR_REVIEW_GATE_MISSING/,
+  );
+});
+
+test('CCW console classifies missing imported modules as build input failures', () => {
+  assert.match(
+    source,
+    /ERR_MODULE_NOT_FOUND/,
+  );
+  assert.match(
+    source,
+    /Cannot find module/,
+  );
+});
