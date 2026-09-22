@@ -68,6 +68,8 @@ function sourcePaths(listing) {
     .filter((path) =>
       path === 'tools/publication-console/build.mjs' ||
       path === 'tools/publication-console/payload-boundary.mjs' ||
+      path === 'tools/workflow/creator-review-gate.mjs' ||
+      path === 'tools/workflow/note-creator-review-gate.mjs' ||
       /^content\/publications\/[^/]+\.md$/.test(path) ||
       /^content\/note-jp\/[^/]+\.md$/.test(path) ||
       /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
@@ -75,6 +77,8 @@ function sourcePaths(listing) {
     .sort()
   if (!allowed.includes('tools/publication-console/build.mjs')) throw new Error('PUBLICATION_CONSOLE_BUILDER_MISSING')
   if (!allowed.includes('tools/publication-console/payload-boundary.mjs')) throw new Error('PUBLICATION_CONSOLE_PAYLOAD_BOUNDARY_MISSING')
+  if (!allowed.includes('tools/workflow/creator-review-gate.mjs')) throw new Error('PUBLICATION_CONSOLE_CREATOR_REVIEW_GATE_MISSING')
+  if (!allowed.includes('tools/workflow/note-creator-review-gate.mjs')) throw new Error('PUBLICATION_CONSOLE_NOTE_CREATOR_REVIEW_GATE_MISSING')
   if (!allowed.some((path) => path.startsWith('content/publications/'))) throw new Error('PUBLICATION_CONSOLE_PATREON_SOURCE_MISSING')
   if (!allowed.some((path) => path.startsWith('content/note-jp/'))) throw new Error('PUBLICATION_CONSOLE_NOTE_SOURCE_MISSING')
   return allowed

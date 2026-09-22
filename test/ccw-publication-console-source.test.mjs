@@ -17,3 +17,23 @@ test('CCW console exports the explicit payload-boundary helper', () => {
     /PUBLICATION_CONSOLE_PAYLOAD_BOUNDARY_MISSING/,
   );
 });
+
+
+test('CCW console exports both creator review gates required by the builder', () => {
+  assert.match(
+    source,
+    /path === 'tools\/workflow\/creator-review-gate\.mjs'/,
+  );
+  assert.match(
+    source,
+    /path === 'tools\/workflow\/note-creator-review-gate\.mjs'/,
+  );
+  assert.match(
+    source,
+    /PUBLICATION_CONSOLE_CREATOR_REVIEW_GATE_MISSING/,
+  );
+  assert.match(
+    source,
+    /PUBLICATION_CONSOLE_NOTE_CREATOR_REVIEW_GATE_MISSING/,
+  );
+});
