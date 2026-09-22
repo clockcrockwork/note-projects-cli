@@ -1,0 +1,88 @@
+name: Patreon body media export
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        required: true
+        default: PTN-PUB-003
+        type: choice
+        options: [PTN-PUB-003]
+  push:
+    branches: [main]
+    paths: [requests/patreon-body-media-export.json]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patreon-body-media-export
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: private-source-read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: request
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            target="$(node -e "const r=require('./requests/patreon-body-media-export.json'); if(r.target!=='PTN-PUB-003') process.exit(2); process.stdout.write(r.target)")"
+          else
+            target="$TARGET"
+          fi
+          printf 'request_json={"task":"patreon-body-media-export","target":"%s"}\n' "$target" >> "$GITHUB_OUTPUT"
+      - id: run
+        continue-on-error: true
+        env:
+          REQUEST_JSON: ${{ steps.request.outputs.request_json }}
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+        run: node scripts/run-patreon-body-media-export.mjs
+      - name: Upload safe artifact
+        if: ${{ always() && steps.run.outputs.artifact_path != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.run.outputs.artifact_name }}
+          path: ${{ steps.run.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+      - id: publish
+        name: Publish body media release
+        if: ${{ steps.run.outcome == 'success' && steps.run.outputs.artifact_path != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PATH: ${{ steps.run.outputs.artifact_path }}
+          RELEASE_TAG: patreon-body-media
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Patreon body media" --notes "Publication-safe allowlisted Patreon body media exported from private maker repositories." --prerelease --target "$GITHUB_SHA"
+          fi
+          gh release upload "$RELEASE_TAG" "$ARTIFACT_PATH"/*.png "$ARTIFACT_PATH"/manifest.json --clobber
+          printf 'release_url=%s\n' "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RESULT_JSON: ${{ steps.run.outputs.result_json }}
+          RELEASE_URL: ${{ steps.publish.outputs.release_url }}
+        run: |
+          printf '### Patreon body media export\n\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '`%s`\n' "${RESULT_JSON:-PATREON_BODY_MEDIA_EXPORT_NO_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$RELEASE_URL" ]]; then printf '\nHandoff: %s\n' "$RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Preserve task failure
+        if: ${{ steps.run.outcome == 'failure' }}
+        run: exit 1
