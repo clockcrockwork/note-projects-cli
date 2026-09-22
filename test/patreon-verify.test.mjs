@@ -26,6 +26,10 @@ test('exports only Patreon verification inputs and excludes workflows/media/outp
       blob('tools/workflow/stock-activation-policy.test.mjs'),
       blob('tools/publication-console/build.mjs'),
       blob('tools/public-view/build.test.mjs'),
+      blob('brand/tokei-haishokunin/note/cover-template-manifest.yaml'),
+      blob('brand/tokei-haishokunin/note/components/ordinary-article-corner-badge.svg'),
+      blob('brand/tokei-haishokunin/note/refs/ordinary-article-corner-badge-v1.png'),
+      blob('brand/logos/symbol.svg'),
       blob('.github/workflows/verify.yml'),
       blob('covers/media/public-ready/example.png'),
       blob('public-view/out/publication-console.html'),
@@ -37,6 +41,9 @@ test('exports only Patreon verification inputs and excludes workflows/media/outp
     plan.map((entry) => entry.path),
     [
       'AGENTS.md',
+      'brand/tokei-haishokunin/note/components/ordinary-article-corner-badge.svg',
+      'brand/tokei-haishokunin/note/cover-template-manifest.yaml',
+      'brand/tokei-haishokunin/note/refs/ordinary-article-corner-badge-v1.png',
       'content/publications/welcome.md',
       'content/quips/launch-quips.md',
       'docs/bilingual-authoring-review.md',
@@ -76,6 +83,11 @@ test('Patreon export helpers remain narrow', () => {
   assert.equal(isExportablePatreonPath('content/publications/x.md'), true)
   assert.equal(isExportablePatreonPath('docs/workflow.md'), true)
   assert.equal(isExportablePatreonPath('tools/workflow/x.test.mjs'), true)
+  assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/cover-template-manifest.yaml'), true)
+  assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/components/x.svg'), true)
+  assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/refs/x.png'), true)
+  assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/refs/x.jpg'), true)
+  assert.equal(isExportablePatreonPath('brand/logos/symbol.svg'), false)
   assert.equal(isExportablePatreonPath('covers/request.yaml'), false)
   assert.equal(isExportablePatreonPath('.github/workflows/x.yml'), false)
   assert.equal(isExportablePatreonPath('public-view/out/x.html'), false)

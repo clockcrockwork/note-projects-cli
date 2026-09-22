@@ -17,6 +17,8 @@ const REPOSITORY_NAME = 'patreon'
 const TASK = 'patreon-verify'
 const SOURCE_ROOTS = ['content/', 'docs/', 'tools/']
 const SOURCE_EXTENSIONS = ['.mjs', '.js', '.json', '.md', '.yaml', '.yml']
+const TOKEI_NOTE_BRAND_ROOT = 'brand/tokei-haishokunin/note/'
+const TOKEI_NOTE_BRAND_EXTENSIONS = ['.md', '.yaml', '.yml', '.svg', '.png', '.jpg', '.jpeg']
 const ROOT_CANONICALS = new Set(['AGENTS.md'])
 const COMMANDS = [
   ['npm', 'run', 'workflow:test'],
@@ -143,8 +145,13 @@ export function isSafePatreonRepositoryPath(path) {
 export function isExportablePatreonPath(path) {
   if (path === 'package.json' || path === 'package-lock.json') return true
   if (ROOT_CANONICALS.has(path)) return true
-  if (!SOURCE_ROOTS.some((root) => path.startsWith(root))) return false
-  return SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))
+  if (SOURCE_ROOTS.some((root) => path.startsWith(root))) {
+    return SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))
+  }
+  if (path.startsWith(TOKEI_NOTE_BRAND_ROOT)) {
+    return TOKEI_NOTE_BRAND_EXTENSIONS.some((extension) => path.endsWith(extension))
+  }
+  return false
 }
 
 export function planPatreonExport(listing) {
@@ -187,7 +194,8 @@ function requiresMachineVerification(changedPaths) {
       path === 'package.json' ||
       path === 'package-lock.json' ||
       ROOT_CANONICALS.has(path) ||
-      SOURCE_ROOTS.some((root) => path.startsWith(root)),
+      SOURCE_ROOTS.some((root) => path.startsWith(root)) ||
+      path.startsWith(TOKEI_NOTE_BRAND_ROOT),
   )
 }
 
