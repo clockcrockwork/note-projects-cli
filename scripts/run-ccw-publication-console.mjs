@@ -70,6 +70,8 @@ function sourcePaths(listing) {
       path === 'tools/publication-console/payload-boundary.mjs' ||
       path === 'tools/workflow/creator-review-gate.mjs' ||
       path === 'tools/workflow/note-creator-review-gate.mjs' ||
+      path === 'tools/workflow/creator-review-gate.mjs' ||
+      path === 'tools/workflow/note-creator-review-gate.mjs' ||
       /^content\/publications\/[^/]+\.md$/.test(path) ||
       /^content\/note-jp\/[^/]+\.md$/.test(path) ||
       /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
@@ -140,7 +142,7 @@ function buildFailureDiagnostic(run) {
   if (/TypeError|ReferenceError/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILDER_RUNTIME_EXCEPTION'
   if (/EROFS|read-only file system/i.test(stderr)) return 'PUBLICATION_CONSOLE_OUTPUT_MOUNT_READONLY'
   if (/EACCES|permission denied/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILD_PERMISSION_DENIED'
-  if (/ENOENT|no such file or directory/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILD_INPUT_MISSING'
+  if (/ENOENT|no such file or directory|ERR_MODULE_NOT_FOUND|Cannot find module/i.test(stderr)) return 'PUBLICATION_CONSOLE_BUILD_INPUT_MISSING'
   if (/docker:|invalid mount|mount.*failed/i.test(stderr)) return 'PUBLICATION_CONSOLE_DOCKER_MOUNT_FAILED'
   if (run.status === 125) return 'PUBLICATION_CONSOLE_DOCKER_INVOCATION_FAILED'
   if (run.signal) return 'PUBLICATION_CONSOLE_BUILD_TERMINATED'
