@@ -9,6 +9,7 @@ import {
 import {
   formatPreviewResultComment,
   parseSafePreviewResult,
+  publishPreviewResult,
 } from '../scripts/report-publication-preview-result.mjs'
 
 test('findArticleRoot resolves one exact Article-ID-prefixed package', () => {
@@ -105,4 +106,37 @@ test('public result formatter strips unreviewed fields and withholds preview URL
   assert.match(comment, /protected previews: 1/)
   assert.match(comment, /intentionally not included/)
   assert.doesNotMatch(comment, /secret\.vercel\.app|dpl_secret/)
+})
+
+
+test('publication preview terminal result closes its one-shot request after comment persistence', async () => {
+  const calls = []
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options })
+    return { ok: true, status: 200 }
+  }
+
+  await publishPreviewResult({
+    token: 'test-token',
+    repository: 'clockcrockwork/note-projects-cli',
+    issueNumber: '303',
+    resultJson: JSON.stringify({
+      task: 'publication-preview',
+      status: 'PASS',
+      source_sha: 'a'.repeat(40),
+      target: 'ART-024',
+      preview_count: 1,
+    }),
+    fetchImpl,
+  })
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].options.method, 'POST')
+  assert.match(calls[0].url, /\/issues\/303\/comments$/)
+  assert.equal(calls[1].options.method, 'PATCH')
+  assert.match(calls[1].url, /\/issues\/303$/)
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    state: 'closed',
+    state_reason: 'completed',
+  })
 })
