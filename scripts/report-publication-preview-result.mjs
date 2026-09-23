@@ -62,7 +62,7 @@ export async function publishPreviewResult({
   runUrl,
   fetchImpl = fetch,
 }) {
-  if (!token || repository !== REPOSITORY || !/^\\d+$/.test(issueNumber ?? '') || !resultJson) {
+  if (!token || repository !== REPOSITORY || !/^[0-9]+$/.test(issueNumber ?? '') || !resultJson) {
     throw new Error('REPORT_INPUT_INVALID')
   }
 
