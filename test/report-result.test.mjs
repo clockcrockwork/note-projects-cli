@@ -102,6 +102,7 @@ test('Patreon verify reports only fixed reviewed commands', () => {
       exported_file_count: 48,
       public_commands: [
         'npm run workflow:test',
+        'npm run verify:bluesky',
         'npm run publication-console:test',
         'npm run public-view:test',
         'npm run publication-console:build',
@@ -114,6 +115,7 @@ test('Patreon verify reports only fixed reviewed commands', () => {
 
   assert.deepEqual(result.public_commands, [
     'npm run workflow:test',
+    'npm run verify:bluesky',
     'npm run publication-console:test',
     'npm run public-view:test',
     'npm run publication-console:build',
