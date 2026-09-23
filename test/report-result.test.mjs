@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { formatResultComment, parseSafeResult } from '../scripts/report-result.mjs'
+import { formatResultComment, parseSafeResult, publishResult } from '../scripts/report-result.mjs'
 
 test('parseSafeResult keeps only reviewed safe fields', () => {
   const sourceSha = 'a'.repeat(40)
@@ -171,4 +171,57 @@ test('invalid result JSON fails closed to a stable diagnostic', () => {
     status: 'FAIL',
     diagnostic: 'RESULT_JSON_INVALID',
   })
+})
+
+
+test('publishResult posts durable terminal result before closing the request issue', async () => {
+  const calls = []
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options })
+    return { ok: true, status: 200 }
+  }
+
+  await publishResult({
+    token: 'test-token',
+    repository: 'clockcrockwork/note-projects-cli',
+    issueNumber: '278',
+    resultJson: JSON.stringify({
+      task: 'repository-verify',
+      status: 'PASS',
+      source_sha: 'a'.repeat(40),
+    }),
+    runUrl: 'https://github.com/clockcrockwork/note-projects-cli/actions/runs/123',
+    fetchImpl,
+  })
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].options.method, 'POST')
+  assert.match(calls[0].url, /\/issues\/278\/comments$/)
+  assert.equal(calls[1].options.method, 'PATCH')
+  assert.match(calls[1].url, /\/issues\/278$/)
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    state: 'closed',
+    state_reason: 'completed',
+  })
+})
+
+test('publishResult does not close the request issue when durable result comment fails', async () => {
+  const calls = []
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options })
+    return { ok: false, status: 500 }
+  }
+
+  await assert.rejects(
+    publishResult({
+      token: 'test-token',
+      repository: 'clockcrockwork/note-projects-cli',
+      issueNumber: '278',
+      resultJson: JSON.stringify({ task: 'repository-verify', status: 'FAIL', diagnostic: 'TEST_FAIL' }),
+      fetchImpl,
+    }),
+    /REPORT_GITHUB_API_500/,
+  )
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].options.method, 'POST')
 })
