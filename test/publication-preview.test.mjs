@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   findArticleRoot,
   isolatedDockerCreateArgs,
+  publicationPreviewSourceAllowlist,
   safePublicResult,
 } from '../scripts/run-publication-preview.mjs'
 import {
@@ -40,6 +41,50 @@ test('findArticleRoot fails closed on ambiguity and absence', () => {
     /PUBLICATION_PREVIEW_TARGET_AMBIGUOUS/,
   )
   assert.throws(() => findArticleRoot({ tree: [] }, 'ART-012'), /PUBLICATION_PREVIEW_TARGET_NOT_FOUND/)
+})
+
+test('publication preview exports only the exact feeder contract referenced by publication.yaml', () => {
+  const articleRoot = 'articles/ai-policy/ART-025-business-admin-chat-visibility'
+  const publication = `article_id: ART-025
+source:
+  article_draft: ../draft.md
+  feeder_contract: ../../../../docs/themes/ai-policy/feeder/FDR-AI-018.contract.yaml
+content:
+  title: Test
+`
+
+  assert.deepEqual(publicationPreviewSourceAllowlist(articleRoot, publication), [
+    `${articleRoot}/publication/**`,
+    `${articleRoot}/medium/**`,
+    'docs/themes/ai-policy/feeder/FDR-AI-018.contract.yaml',
+  ])
+})
+
+test('publication preview feeder contract export fails closed on unsafe or ambiguous paths', () => {
+  const articleRoot = 'articles/example/ART-999-example'
+
+  assert.throws(
+    () =>
+      publicationPreviewSourceAllowlist(
+        articleRoot,
+        `source:
+  feeder_contract: ../../../../.github/workflows/private.yml
+`,
+      ),
+    /PUBLICATION_PREVIEW_FEEDER_CONTRACT_PATH_REJECTED/,
+  )
+
+  assert.throws(
+    () =>
+      publicationPreviewSourceAllowlist(
+        articleRoot,
+        `source:
+  feeder_contract: ../../../../docs/themes/example/one.yaml
+  feeder_contract: ../../../../docs/themes/example/two.yaml
+`,
+      ),
+    /PUBLICATION_PREVIEW_FEEDER_CONTRACT_DUPLICATE/,
+  )
 })
 
 test('preview build container is created no-egress without a host bind mount', () => {

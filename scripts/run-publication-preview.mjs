@@ -1,7 +1,7 @@
 import { appendFile, cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, resolve, sep } from 'node:path'
+import { dirname, posix, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   api,
@@ -215,6 +215,71 @@ export function findArticleRoot(listing, target) {
   if (candidates.length === 0) throw new Error('PUBLICATION_PREVIEW_TARGET_NOT_FOUND')
   if (candidates.length !== 1) throw new Error('PUBLICATION_PREVIEW_TARGET_AMBIGUOUS')
   return candidates[0]
+}
+
+function decodeSafePathScalar(raw) {
+  const value = String(raw ?? '').trim()
+  if (!value) throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_INVALID')
+
+  let decoded = value
+  if (value.startsWith('"')) {
+    try {
+      decoded = JSON.parse(value)
+    } catch {
+      throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_INVALID')
+    }
+  } else if (value.startsWith("'")) {
+    if (!value.endsWith("'") || value.length < 2) {
+      throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_INVALID')
+    }
+    decoded = value.slice(1, -1).replaceAll("''", "'")
+  }
+
+  if (typeof decoded !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(decoded)) {
+    throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_INVALID')
+  }
+  return decoded
+}
+
+export function publicationPreviewSourceAllowlist(articleRoot, publicationText) {
+  const publicationPath = `${articleRoot}/publication/publication.yaml`
+  let inSource = false
+  let feederContract = null
+
+  for (const line of String(publicationText ?? '').split(/\r?\n/)) {
+    if (/^source:\s*(?:#.*)?$/.test(line)) {
+      inSource = true
+      continue
+    }
+    if (/^\S/.test(line)) {
+      inSource = false
+      continue
+    }
+    if (!inSource) continue
+
+    const match = /^ {2}feeder_contract:\s*(.+?)\s*$/.exec(line)
+    if (!match) continue
+    if (feederContract !== null) {
+      throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_DUPLICATE')
+    }
+    const rawValue = match[1].replace(/\s+#.*$/, '').trim()
+    feederContract = decodeSafePathScalar(rawValue)
+  }
+
+  const allow = [`${articleRoot}/publication/**`, `${articleRoot}/medium/**`]
+  if (feederContract === null) return allow
+
+  const resolved = posix.normalize(posix.join(posix.dirname(publicationPath), feederContract))
+  if (
+    posix.isAbsolute(resolved) ||
+    resolved.startsWith('../') ||
+    !/^docs\/themes\/[A-Za-z0-9._/-]+\.ya?ml$/.test(resolved)
+  ) {
+    throw new Error('PUBLICATION_PREVIEW_FEEDER_CONTRACT_PATH_REJECTED')
+  }
+
+  allow.push(resolved)
+  return allow
 }
 
 function treeEntriesByPath(listing) {
@@ -432,6 +497,13 @@ async function main() {
         ? toolingListing
         : await listCompleteTree({ token: accessToken, sha: sourceSha })
     const articleRoot = findArticleRoot(sourceListing, request.target)
+    const publicationPath = `${articleRoot}/publication/publication.yaml`
+    const publicationText = await fetchTextFile({
+      token: accessToken,
+      sha: sourceSha,
+      path: publicationPath,
+    })
+    const sourceAllow = publicationPreviewSourceAllowlist(articleRoot, publicationText)
 
     await writeFile(resolve(trustedRoot, 'tooling-tree.json'), JSON.stringify(toolingListing))
     await writeFile(resolve(trustedRoot, 'source-tree.json'), JSON.stringify(sourceListing))
@@ -449,7 +521,7 @@ async function main() {
       JSON.stringify({
         schema_version: 1,
         task: 'publication-preview',
-        allow: [`${articleRoot}/publication/**`, `${articleRoot}/medium/**`],
+        allow: sourceAllow,
         deny: [],
       }),
     )
