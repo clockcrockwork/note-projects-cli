@@ -16,6 +16,7 @@ const PUBLIC_COMMANDS = new Set([
   'npm test',
   'npm run build:gas',
   'npm run workflow:test',
+  'npm run verify:bluesky',
   'npm run publication-console:test',
   'npm run public-view:test',
   'npm run publication-console:build',
