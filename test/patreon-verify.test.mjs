@@ -25,6 +25,10 @@ test('exports only Patreon verification inputs and excludes workflows/media/outp
       blob('docs/bilingual-authoring-review.md'),
       blob('tools/workflow/stock-activation-policy.test.mjs'),
       blob('tools/publication-console/build.mjs'),
+      blob('gas/adapters/runtime-gas.mjs'),
+      blob('gas/runtime-gas.test.mjs'),
+      blob('gas/apps-script/appsscript.json'),
+      blob('dist/apps-script/Runtime.gs'),
       blob('tools/public-view/build.test.mjs'),
       blob('brand/tokei-haishokunin/note/cover-template-manifest.yaml'),
       blob('brand/tokei-haishokunin/note/components/ordinary-article-corner-badge.svg'),
@@ -48,6 +52,9 @@ test('exports only Patreon verification inputs and excludes workflows/media/outp
       'content/quips/launch-quips.md',
       'covers/media/public-ready/example.png',
       'docs/bilingual-authoring-review.md',
+      'gas/adapters/runtime-gas.mjs',
+      'gas/apps-script/appsscript.json',
+      'gas/runtime-gas.test.mjs',
       'package-lock.json',
       'package.json',
       'tools/public-view/build.test.mjs',
@@ -84,6 +91,10 @@ test('Patreon export helpers remain narrow', () => {
   assert.equal(isExportablePatreonPath('content/publications/x.md'), true)
   assert.equal(isExportablePatreonPath('docs/workflow.md'), true)
   assert.equal(isExportablePatreonPath('tools/workflow/x.test.mjs'), true)
+  assert.equal(isExportablePatreonPath('gas/adapters/runtime-gas.mjs'), true)
+  assert.equal(isExportablePatreonPath('gas/runtime-gas.test.mjs'), true)
+  assert.equal(isExportablePatreonPath('gas/apps-script/appsscript.json'), true)
+  assert.equal(isExportablePatreonPath('dist/apps-script/Runtime.gs'), false)
   assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/cover-template-manifest.yaml'), true)
   assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/components/x.svg'), true)
   assert.equal(isExportablePatreonPath('brand/tokei-haishokunin/note/refs/x.png'), true)

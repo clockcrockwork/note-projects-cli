@@ -15,7 +15,7 @@ import {
 const REPOSITORY = 'clockcrockwork/patreon'
 const REPOSITORY_NAME = 'patreon'
 const TASK = 'patreon-verify'
-const SOURCE_ROOTS = ['content/', 'docs/', 'tools/']
+const SOURCE_ROOTS = ['content/', 'docs/', 'tools/', 'gas/']
 const SOURCE_EXTENSIONS = ['.mjs', '.js', '.json', '.md', '.yaml', '.yml']
 const TOKEI_NOTE_BRAND_ROOT = 'brand/tokei-haishokunin/note/'
 const TOKEI_NOTE_BRAND_EXTENSIONS = ['.md', '.yaml', '.yml', '.svg', '.png', '.jpg', '.jpeg']
@@ -24,6 +24,7 @@ const PUBLIC_READY_COVER_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 const ROOT_CANONICALS = new Set(['AGENTS.md'])
 const COMMANDS = [
   ['npm', 'run', 'workflow:test'],
+  ['npm', 'run', 'verify:bluesky'],
   ['npm', 'run', 'publication-console:test'],
   ['npm', 'run', 'public-view:test'],
   ['npm', 'run', 'publication-console:build'],
@@ -321,6 +322,7 @@ async function main() {
       if (!run.ok) {
         const diagnostic = {
           'workflow:test': 'PATREON_WORKFLOW_TEST_FAILED',
+          'verify:bluesky': 'PATREON_BLUESKY_VERIFY_FAILED',
           'publication-console:test': 'PATREON_PUBLICATION_CONSOLE_TEST_FAILED',
           'public-view:test': 'PATREON_PUBLIC_VIEW_TEST_FAILED',
           'publication-console:build': 'PATREON_PUBLICATION_CONSOLE_BUILD_FAILED',
