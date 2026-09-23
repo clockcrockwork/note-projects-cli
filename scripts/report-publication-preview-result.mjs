@@ -54,17 +54,20 @@ export function formatPreviewResultComment(raw, runUrl) {
   return lines.join('\n')
 }
 
-async function main() {
-  const token = process.env.GITHUB_TOKEN
-  const repository = process.env.GITHUB_REPOSITORY
-  const issueNumber = process.env.ISSUE_NUMBER
-  const resultJson = process.env.RESULT_JSON
-  if (!token || repository !== REPOSITORY || !/^\d+$/.test(issueNumber ?? '') || !resultJson) {
+export async function publishPreviewResult({
+  token,
+  repository,
+  issueNumber,
+  resultJson,
+  runUrl,
+  fetchImpl = fetch,
+}) {
+  if (!token || repository !== REPOSITORY || !/^[0-9]+$/.test(issueNumber ?? '') || !resultJson) {
     throw new Error('REPORT_INPUT_INVALID')
   }
 
-  const body = formatPreviewResultComment(resultJson, process.env.RUN_URL)
-  const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/issues/${issueNumber}/comments`, {
+  const body = formatPreviewResultComment(resultJson, runUrl)
+  const commentResponse = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/issues/${issueNumber}/comments`, {
     method: 'POST',
     headers: {
       Accept: 'application/vnd.github+json',
@@ -75,7 +78,30 @@ async function main() {
     },
     body: JSON.stringify({ body }),
   })
-  if (!response.ok) throw new Error(`REPORT_GITHUB_API_${response.status}`)
+  if (!commentResponse.ok) throw new Error(`REPORT_GITHUB_API_${commentResponse.status}`)
+
+  const closeResponse = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/issues/${issueNumber}`, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'note-projects-cli',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ state: 'closed', state_reason: 'completed' }),
+  })
+  if (!closeResponse.ok) throw new Error(`REPORT_CLOSE_GITHUB_API_${closeResponse.status}`)
+}
+
+async function main() {
+  await publishPreviewResult({
+    token: process.env.GITHUB_TOKEN,
+    repository: process.env.GITHUB_REPOSITORY,
+    issueNumber: process.env.ISSUE_NUMBER,
+    resultJson: process.env.RESULT_JSON,
+    runUrl: process.env.RUN_URL,
+  })
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
