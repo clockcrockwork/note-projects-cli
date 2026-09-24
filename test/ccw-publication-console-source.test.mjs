@@ -76,3 +76,10 @@ test('CCW console exports approved public-ready cover media', () => {
     /\^covers\\\/media\\\/public-ready\\\/.+\\\.\(\?:png\|jpe\?g\|webp\|gif\)\$/,
   );
 });
+
+test('CCW console uploads generated HTML before creating the Vercel deployment', () => {
+  assert.match(source, /\/v2\/files\?/)
+  assert.match(source, /'x-Vercel-Digest': uploadedFile\.sha/)
+  assert.match(source, /files: \[\{ file: uploadedFile\.file, sha: uploadedFile\.sha, size: uploadedFile\.size \}\]/)
+  assert.doesNotMatch(source, /files: \[\{ file: 'index\.html', data: html \}\]/)
+})
