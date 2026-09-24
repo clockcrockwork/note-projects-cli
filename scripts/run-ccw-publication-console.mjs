@@ -189,28 +189,41 @@ function authHeaders(token) {
 
 export function vercelApiDiagnostic(status, data, fallback = 'VERCEL_DEPLOY_FAILED') {
   if (!Number.isInteger(status) || status < 100 || status > 599) return fallback
+  const prefix = /^VERCEL_[A-Z0-9_]+_FAILED$/.test(fallback)
+    ? fallback.replace(/_FAILED$/, '')
+    : 'VERCEL_DEPLOY'
   const rawCode = typeof data?.error?.code === 'string' ? data.error.code : ''
   const code = rawCode.toUpperCase().replaceAll('-', '_')
-  if (code && /^[A-Z0-9_]{1,64}$/.test(code)) return `VERCEL_DEPLOY_HTTP_${status}_${code}`
-  return `VERCEL_DEPLOY_HTTP_${status}`
+  if (code && /^[A-Z0-9_]{1,64}$/.test(code)) return `${prefix}_HTTP_${status}_${code}`
+  return `${prefix}_HTTP_${status}`
 }
 
 async function jsonOrThrow(response, diagnostic) {
   const text = await response.text()
   let data = {}
   try { data = text ? JSON.parse(text) : {} } catch {
-    if (!response.ok && diagnostic === 'VERCEL_DEPLOY_FAILED') {
-      throw new Error(vercelApiDiagnostic(response.status, {}))
+    if (!response.ok && ['VERCEL_DEPLOY_FAILED', 'VERCEL_FILE_UPLOAD_FAILED'].includes(diagnostic)) {
+      throw new Error(vercelApiDiagnostic(response.status, {}, diagnostic))
     }
     throw new Error(diagnostic)
   }
   if (!response.ok) {
-    if (diagnostic === 'VERCEL_DEPLOY_FAILED') {
-      throw new Error(vercelApiDiagnostic(response.status, data))
+    if (['VERCEL_DEPLOY_FAILED', 'VERCEL_FILE_UPLOAD_FAILED'].includes(diagnostic)) {
+      throw new Error(vercelApiDiagnostic(response.status, data, diagnostic))
     }
     throw new Error(diagnostic)
   }
   return data
+}
+
+export function deploymentFileIdentity(html) {
+  const bytes = Buffer.from(String(html ?? ''), 'utf8')
+  return {
+    file: 'index.html',
+    sha: createHash('sha1').update(bytes).digest('hex'),
+    size: bytes.length,
+    bytes,
+  }
 }
 
 function findFileUid(entries, name) {
@@ -319,6 +332,19 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha, producti
   if (verifiedProject?.ssoProtection?.deploymentType !== 'all') throw new Error('VERCEL_PROTECTION_NOT_PERSISTED')
 
   const htmlSha = createHash('sha256').update(html).digest('hex')
+  const uploadedFile = deploymentFileIdentity(html)
+  const upload = await fetch(`${API}/v2/files?${query}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(uploadedFile.size),
+      'x-Vercel-Digest': uploadedFile.sha,
+    },
+    body: uploadedFile.bytes,
+  })
+  await jsonOrThrow(upload, 'VERCEL_FILE_UPLOAD_FAILED')
+
   const requestBody = {
     name: PREVIEW_PROJECT_NAME,
     project: project.id,
@@ -328,7 +354,7 @@ async function deployProtectedConsole({ token, teamId, html, sourceSha, producti
       publication_preview_source: sourceSha,
       publication_preview_channel: production ? 'main' : 'pull-request',
     },
-    files: [{ file: 'index.html', data: html }],
+    files: [{ file: uploadedFile.file, sha: uploadedFile.sha, size: uploadedFile.size }],
   }
   if (production) requestBody.target = 'production'
 
