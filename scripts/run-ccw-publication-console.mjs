@@ -3,6 +3,7 @@ import { appendFile, copyFile, mkdir, readFile, readdir, rm, writeFile } from 'n
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   api,
   fetchBlob,
@@ -537,4 +538,6 @@ async function main() {
   }
 }
 
-main()
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main()
+}
