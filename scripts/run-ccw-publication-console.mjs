@@ -3,6 +3,7 @@ import { appendFile, copyFile, mkdir, readFile, readdir, rm, writeFile } from 'n
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   api,
   fetchBlob,
@@ -186,11 +187,29 @@ function authHeaders(token) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 }
 
+export function vercelApiDiagnostic(status, data, fallback = 'VERCEL_DEPLOY_FAILED') {
+  if (!Number.isInteger(status) || status < 100 || status > 599) return fallback
+  const rawCode = typeof data?.error?.code === 'string' ? data.error.code : ''
+  const code = rawCode.toUpperCase().replaceAll('-', '_')
+  if (code && /^[A-Z0-9_]{1,64}$/.test(code)) return `VERCEL_DEPLOY_HTTP_${status}_${code}`
+  return `VERCEL_DEPLOY_HTTP_${status}`
+}
+
 async function jsonOrThrow(response, diagnostic) {
   const text = await response.text()
   let data = {}
-  try { data = text ? JSON.parse(text) : {} } catch { throw new Error(diagnostic) }
-  if (!response.ok) throw new Error(diagnostic)
+  try { data = text ? JSON.parse(text) : {} } catch {
+    if (!response.ok && diagnostic === 'VERCEL_DEPLOY_FAILED') {
+      throw new Error(vercelApiDiagnostic(response.status, {}))
+    }
+    throw new Error(diagnostic)
+  }
+  if (!response.ok) {
+    if (diagnostic === 'VERCEL_DEPLOY_FAILED') {
+      throw new Error(vercelApiDiagnostic(response.status, data))
+    }
+    throw new Error(diagnostic)
+  }
   return data
 }
 
@@ -519,4 +538,6 @@ async function main() {
   }
 }
 
-main()
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main()
+}
