@@ -23,7 +23,11 @@ const SAFE_COMMANDS = new Map([
         captureFormatPaths: true,
       },
       { argv: ['npm', 'run', 'lint'], diagnostic: 'PUBLIC_LINT_FAILED' },
-      { argv: ['npm', 'run', 'typecheck:public'], diagnostic: 'PUBLIC_TYPECHECK_FAILED' },
+      {
+        argv: ['npm', 'run', 'typecheck:public'],
+        diagnostic: 'PUBLIC_TYPECHECK_FAILED',
+        captureTypeDiagnostics: true,
+      },
       { argv: ['npm', 'run', 'test:public'], diagnostic: 'PUBLIC_TEST_FAILED' },
     ],
   ],
@@ -234,6 +238,49 @@ export function safeFormatChangedSpans(entries, changedPaths) {
   return spans.sort(
     (a, b) => a.changed_path_index - b.changed_path_index || a.start_line - b.start_line,
   )
+}
+
+export function safeTypecheckFailureDetails(output, changedPaths) {
+  const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
+  const diagnostics = []
+  let unrelatedCount = 0
+  const seen = new Set()
+
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^\.\//, '')
+    const match = line.match(/^(.+?)\((\d+),(\d+)\): error TS(\d+):/)
+    if (!match) continue
+    const [, path, lineNumber, columnNumber, code] = match
+    const key = `${path}:${lineNumber}:${columnNumber}:TS${code}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const index = changedIndex.get(path)
+    if (index === undefined) {
+      unrelatedCount += 1
+      continue
+    }
+
+    diagnostics.push({
+      changed_path_index: index,
+      line: Number(lineNumber),
+      column: Number(columnNumber),
+      code: Number(code),
+    })
+  }
+
+  return {
+    typecheck_diagnostics: diagnostics
+      .sort(
+        (a, b) =>
+          a.changed_path_index - b.changed_path_index ||
+          a.line - b.line ||
+          a.column - b.column ||
+          a.code - b.code,
+      )
+      .slice(0, 20),
+    typecheck_unrelated_count: unrelatedCount,
+  }
 }
 
 export function changedExportedPaths(changedPaths, exportedPaths) {
@@ -466,6 +513,15 @@ async function main() {
           { timeout: 20 * 60_000, env: childEnv() },
         )
         if (!isolated.ok) {
+          if (stage.captureTypeDiagnostics) {
+            safeFailureDetails = {
+              ...safeFailureDetails,
+              ...safeTypecheckFailureDetails(
+                `${isolated.stdout}\n${isolated.stderr}`,
+                resolved.changedPaths,
+              ),
+            }
+          }
           if (stage.captureFormatPaths) {
             const differentPaths = parseDifferentPaths(isolated.stdout)
             safeFailureDetails = safeFormatFailureDetails(isolated.stdout, resolved.changedPaths)
