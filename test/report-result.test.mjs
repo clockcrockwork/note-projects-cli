@@ -92,6 +92,35 @@ test('formatResultComment reports only numeric format locations, never file name
   assert.doesNotMatch(comment, /PRIVATE_SENTINEL/)
 })
 
+test('typecheck diagnostics report only numeric locations and TS codes', () => {
+  const comment = formatResultComment(
+    JSON.stringify({
+      task: 'repository-verify',
+      status: 'FAIL',
+      diagnostic: 'PUBLIC_TYPECHECK_FAILED',
+      changed_path_count: 4,
+      typecheck_diagnostics: [
+        {
+          changed_path_index: 2,
+          line: 88,
+          column: 14,
+          code: 2322,
+          path: 'articles/private/body.note.md',
+          message: 'PRIVATE_SENTINEL',
+        },
+        { changed_path_index: 9, line: 1, column: 1, code: 9999 },
+      ],
+      typecheck_unrelated_count: 1,
+      stdout: 'PRIVATE_SENTINEL',
+    }),
+    'https://github.com/clockcrockwork/note-projects-cli/actions/runs/123',
+  )
+
+  assert.match(comment, /typecheck diagnostics: #2@L88:C14 TS2322/)
+  assert.match(comment, /unrelated typecheck diagnostics: 1/)
+  assert.doesNotMatch(comment, /articles\/private|PRIVATE_SENTINEL/)
+})
+
 test('Patreon verify reports only fixed reviewed commands', () => {
   const result = parseSafeResult(
     JSON.stringify({
