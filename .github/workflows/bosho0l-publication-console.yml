@@ -1,0 +1,59 @@
+name: bosho0l publication console
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - requests/bosho0l-publication-console.json
+
+permissions: {}
+
+concurrency:
+  group: bosho0l-publication-console
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: private-source-read
+    permissions:
+      contents: read
+    outputs:
+      result_json: ${{ steps.run.outputs.result_json }}
+      source_sha: ${{ steps.run.outputs.source_sha }}
+      status: ${{ steps.run.outputs.status }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.12.0'
+          cache: ''
+      - id: run
+        continue-on-error: true
+        env:
+          NPR_APP_ID: ${{ secrets.NPR_APP_ID }}
+          NPR_APP_PRIVATE_KEY: ${{ secrets.NPR_APP_PRIVATE_KEY }}
+          NPR_APP_INSTALLATION_ID: ${{ secrets.NPR_APP_INSTALLATION_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: team_VXDwElBdF8kzJnYTyFFcDupn
+        run: node scripts/run-bosho0l-publication-console.mjs
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          RESULT_JSON: ${{ steps.run.outputs.result_json }}
+        run: |
+          printf '### bosho0l publication console\n\n' >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$RESULT_JSON" ]]; then
+            printf '`%s`\n' "$RESULT_JSON" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '`BOSHO0L_PUBLICATION_CONSOLE_NO_RESULT`\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf '\nThe protected stable URL is not emitted to public logs.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve task failure
+        if: ${{ steps.run.outcome == 'failure' }}
+        run: exit 1
