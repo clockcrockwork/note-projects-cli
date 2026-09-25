@@ -8,6 +8,7 @@ import {
   safeFormatFailureDetails,
   safeLineChangeSpan,
   safeLineChangeSpans,
+  safeTypecheckFailureDetails,
 } from '../scripts/run-repository-verify.mjs'
 
 test('prettier list-different output is normalized without exposing content', () => {
@@ -105,4 +106,20 @@ test('format gate targets only changed files that crossed the public export boun
     'package.json',
     'tests/example.spec.mjs',
   ])
+})
+
+
+test('typecheck diagnostics expose only changed-path indices and numeric TypeScript locations', () => {
+  const changedPaths = ['private/a.mjs', 'src/public.mjs', 'tools/other.mjs']
+  const output = [
+    'src/public.mjs(12,7): error TS2322: PRIVATE_SENTINEL',
+    'private/not-changed.mjs(4,2): error TS7006: PRIVATE_SENTINEL',
+    'src/public.mjs(12,7): error TS2322: PRIVATE_SENTINEL',
+    'not a diagnostic',
+  ].join('\n')
+
+  assert.deepEqual(safeTypecheckFailureDetails(output, changedPaths), {
+    typecheck_diagnostics: [{ changed_path_index: 1, line: 12, column: 7, code: 2322 }],
+    typecheck_unrelated_count: 1,
+  })
 })

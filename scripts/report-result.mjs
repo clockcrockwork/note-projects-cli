@@ -101,6 +101,36 @@ export function parseSafeResult(raw) {
   if (Number.isSafeInteger(value.format_unrelated_count) && value.format_unrelated_count >= 0) {
     safe.format_unrelated_count = value.format_unrelated_count
   }
+  if (Array.isArray(value.typecheck_diagnostics)) {
+    const max = safe.changed_path_count ?? Number.MAX_SAFE_INTEGER
+    safe.typecheck_diagnostics = value.typecheck_diagnostics
+      .filter(
+        (item) =>
+          item &&
+          Number.isSafeInteger(item.changed_path_index) &&
+          item.changed_path_index >= 0 &&
+          item.changed_path_index < max &&
+          Number.isSafeInteger(item.line) &&
+          item.line >= 1 &&
+          item.line <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.column) &&
+          item.column >= 1 &&
+          item.column <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.code) &&
+          item.code >= 1000 &&
+          item.code <= 99999,
+      )
+      .map((item) => ({
+        changed_path_index: item.changed_path_index,
+        line: item.line,
+        column: item.column,
+        code: item.code,
+      }))
+      .slice(0, MAX_FORMAT_SPANS)
+  }
+  if (Number.isSafeInteger(value.typecheck_unrelated_count) && value.typecheck_unrelated_count >= 0) {
+    safe.typecheck_unrelated_count = value.typecheck_unrelated_count
+  }
   if (Array.isArray(value.public_commands)) {
     safe.public_commands = value.public_commands.filter((item) => PUBLIC_COMMANDS.has(item))
   }
@@ -149,6 +179,19 @@ export function formatResultComment(raw, runUrl) {
   }
   if (result.format_unrelated_count !== undefined) {
     lines.push(`- unrelated format differences: ${result.format_unrelated_count}`)
+  }
+  if (result.typecheck_diagnostics?.length) {
+    lines.push(
+      `- typecheck diagnostics: ${result.typecheck_diagnostics
+        .map(
+          (item) =>
+            `#${item.changed_path_index}@L${item.line}:C${item.column} TS${item.code}`,
+        )
+        .join('; ')}`,
+    )
+  }
+  if (result.typecheck_unrelated_count !== undefined) {
+    lines.push(`- unrelated typecheck diagnostics: ${result.typecheck_unrelated_count}`)
   }
   if (result.public_commands?.length) {
     lines.push(`- public commands: ${result.public_commands.map(code).join(', ')}`)
