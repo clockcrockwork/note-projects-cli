@@ -33,6 +33,29 @@ function stableDiagnostic(error) {
   return /^[A-Z0-9_]+$/.test(first) ? first : 'UNCLASSIFIED_FAILURE'
 }
 
+export function classifyConsoleBuildFailure(build) {
+  if (build?.signal) return 'PUBLICATION_CONSOLE_BUILD_SIGNALLED'
+  if (build?.status === null) return 'PUBLICATION_CONSOLE_BUILD_SPAWN_FAILED'
+
+  const combined = `${build?.stdout ?? ''}\n${build?.stderr ?? ''}`
+  const rules = [
+    [/invalid YAML/i, 'PUBLICATION_CONSOLE_SOURCE_YAML_INVALID'],
+    [/reference links cannot be materialized deterministically/i, 'PUBLICATION_CONSOLE_REFERENCE_LINKS_AMBIGUOUS'],
+    [/CTA link text is present but cannot be materialized deterministically/i, 'PUBLICATION_CONSOLE_CTA_LINK_AMBIGUOUS'],
+    [/Configured sidecar does not exist/i, 'PUBLICATION_CONSOLE_SIDECAR_MISSING'],
+    [/declared by multiple packages/i, 'PUBLICATION_CONSOLE_ARTICLE_ID_DUPLICATE'],
+    [/was not found under articles/i, 'PUBLICATION_CONSOLE_ARTICLE_NOT_FOUND'],
+    [/commercial\.paywall must be false/i, 'PUBLICATION_CONSOLE_MEDIUM_PAYWALL_INVALID'],
+    [/must be PASS or a qualified PASS_/i, 'PUBLICATION_CONSOLE_MEDIUM_QA_NOT_PASS'],
+    [/SOURCE_SHA must be an exact 40-hex/i, 'PUBLICATION_CONSOLE_SOURCE_SHA_INVALID'],
+  ]
+  for (const [pattern, diagnostic] of rules) {
+    if (pattern.test(combined)) return diagnostic
+  }
+  return 'PUBLICATION_CONSOLE_BUILD_FAILED'
+}
+
+
 function childEnv(extra = {}) {
   return {
     PATH: process.env.PATH ?? '',
@@ -185,7 +208,7 @@ function protectionProbePassed(response) {
   }
 }
 
-async function probeProtection(url) {
+async function probeProtection(url, diagnostic = 'VERCEL_PROTECTION_PROBE_FAILED') {
   for (let attempt = 1; attempt <= 15; attempt += 1) {
     const probeUrl = new URL(url)
     probeUrl.searchParams.set('__bosho0l_console_probe', `${Date.now()}-${attempt}`)
@@ -196,7 +219,7 @@ async function probeProtection(url) {
     if (protectionProbePassed(response)) return response.status
     if (attempt < 15) await new Promise((resolvePromise) => setTimeout(resolvePromise, 4000))
   }
-  throw new Error('VERCEL_PROTECTION_PROBE_FAILED')
+  throw new Error(diagnostic)
 }
 
 async function currentProductionSource({ token, teamId, projectId }) {
@@ -272,8 +295,14 @@ async function deployProductionConsole({ token, teamId, projectId, sourceSha, ht
   if (deployment.readyState !== 'READY') throw new Error('VERCEL_DEPLOY_NOT_READY')
   const deploymentUrl = `https://${deployment.url}`
   if (!URL_RE.test(deploymentUrl)) throw new Error('VERCEL_DEPLOY_URL_INVALID')
-  const deploymentProtectionStatus = await probeProtection(deploymentUrl)
-  const stableProtectionStatus = await probeProtection(STABLE_CONSOLE_URL)
+  const deploymentProtectionStatus = await probeProtection(
+    deploymentUrl,
+    'VERCEL_DEPLOYMENT_PROTECTION_PROBE_FAILED',
+  )
+  const stableProtectionStatus = await probeProtection(
+    STABLE_CONSOLE_URL,
+    'VERCEL_STABLE_PROTECTION_PROBE_FAILED',
+  )
   return {
     deployment_id: deployment.id,
     protection_status: stableProtectionStatus,
@@ -471,7 +500,7 @@ async function main() {
       ],
       { timeout: 5 * 60_000, env: childEnv() },
     )
-    if (!build.ok) throw new Error('PUBLICATION_CONSOLE_BUILD_FAILED')
+    if (!build.ok) throw new Error(classifyConsoleBuildFailure(build))
 
     phase = 'OUTPUT_ISOLATE'
     const outputRoot = resolve(workspaceRoot, 'artifacts/publication-console')

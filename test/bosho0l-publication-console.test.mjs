@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   PROJECT_NAME,
   STABLE_CONSOLE_URL,
+  classifyConsoleBuildFailure,
   safePublicResult,
   sourcePaths,
 } from '../scripts/run-bosho0l-publication-console.mjs'
@@ -73,3 +74,44 @@ test('workflow refreshes on a bounded cadence and request-file merge', async () 
   assert.doesNotMatch(workflow, /pull_request:/)
   assert.doesNotMatch(workflow, /self-hosted/)
 })
+
+test('build failure classifier emits only stable non-sensitive diagnostics', () => {
+  assert.equal(
+    classifyConsoleBuildFailure({
+      status: 1,
+      signal: null,
+      stdout: '',
+      stderr:
+        '/workspace/articles/x/publication/publication.yaml: reference links cannot be materialized deterministically: 3 reference item(s), 2 HTTP official_surfaces URL(s).',
+    }),
+    'PUBLICATION_CONSOLE_REFERENCE_LINKS_AMBIGUOUS',
+  )
+  assert.equal(
+    classifyConsoleBuildFailure({
+      status: 1,
+      signal: null,
+      stdout: '',
+      stderr: 'Configured sidecar does not exist: private/path/example.png',
+    }),
+    'PUBLICATION_CONSOLE_SIDECAR_MISSING',
+  )
+  assert.equal(
+    classifyConsoleBuildFailure({
+      status: 1,
+      signal: null,
+      stdout: 'unexpected private builder output',
+      stderr: '',
+    }),
+    'PUBLICATION_CONSOLE_BUILD_FAILED',
+  )
+  assert.equal(
+    classifyConsoleBuildFailure({
+      status: null,
+      signal: 'SIGTERM',
+      stdout: '',
+      stderr: '',
+    }),
+    'PUBLICATION_CONSOLE_BUILD_SIGNALLED',
+  )
+})
+
