@@ -586,7 +586,11 @@ async function main() {
     const rawDiagnostic = stableDiagnostic(error)
     const diagnostic =
       rawDiagnostic === 'UNCLASSIFIED_FAILURE' ? `RUNNER_${phase}_FAILED` : rawDiagnostic
-    const status = diagnostic === 'EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE' ? 'HOLD' : 'FAIL'
+    const status =
+      diagnostic === 'EXECUTION_PLANE_CREDENTIALS_UNAVAILABLE' ||
+      diagnostic === 'GITHUB_API_RATE_LIMITED'
+        ? 'HOLD'
+        : 'FAIL'
     await emit(
       {
         schema_version: 1,
