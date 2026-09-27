@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
-import { api, createAppJwt, isRetryableGitHubGetStatus } from '../scripts/github-app.mjs'
+import {
+  api,
+  createAppJwt,
+  githubRateLimitDelayMs,
+  isRetryableGitHubGetStatus,
+} from '../scripts/github-app.mjs'
 
-function response(status, value = {}) {
+function response(status, value = {}, headers = {}) {
+  const normalized = new Map(
+    Object.entries(headers).map(([name, headerValue]) => [name.toLowerCase(), String(headerValue)]),
+  )
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: {
+      get(name) {
+        return normalized.get(String(name).toLowerCase()) ?? null
+      },
+    },
     async text() {
       return JSON.stringify(value)
     },
@@ -37,6 +50,85 @@ test('classifies only rate-limit and server statuses as retryable GET failures',
   assert.equal(isRetryableGitHubGetStatus(503), true)
   assert.equal(isRetryableGitHubGetStatus(404), false)
   assert.equal(isRetryableGitHubGetStatus(403), false)
+})
+
+test('classifies GitHub 403 rate limits only when response evidence supports it', () => {
+  assert.equal(
+    githubRateLimitDelayMs(
+      response(403, { message: 'API rate limit exceeded' }, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '101' }),
+      JSON.stringify({ message: 'API rate limit exceeded' }),
+      100_000,
+    ),
+    2000,
+  )
+  assert.equal(
+    githubRateLimitDelayMs(
+      response(403, { message: 'You have exceeded a secondary rate limit.' }, { 'retry-after': '2' }),
+      JSON.stringify({ message: 'You have exceeded a secondary rate limit.' }),
+      0,
+    ),
+    2000,
+  )
+  assert.equal(
+    githubRateLimitDelayMs(
+      response(403, { message: 'Resource not accessible by integration' }),
+      JSON.stringify({ message: 'Resource not accessible by integration' }),
+      0,
+    ),
+    null,
+  )
+})
+
+test('GET retries a rate-limit 403 with Retry-After and then succeeds', async () => {
+  let calls = 0
+  const delays = []
+  const result = await api('/test', {
+    fetchImpl: async () => {
+      calls += 1
+      return calls === 1
+        ? response(
+            403,
+            { message: 'You have exceeded a secondary rate limit.' },
+            { 'retry-after': '1' },
+          )
+        : response(200, { ok: true })
+    },
+    sleepFn: async (ms) => delays.push(ms),
+  })
+
+  assert.deepEqual(result, { ok: true })
+  assert.equal(calls, 2)
+  assert.deepEqual(delays, [1000])
+})
+
+test('GET keeps ordinary permission 403 fail-closed and does not retry it', async () => {
+  let calls = 0
+  await assert.rejects(
+    api('/forbidden', {
+      fetchImpl: async () => {
+        calls += 1
+        return response(403, { message: 'Resource not accessible by integration' })
+      },
+      sleepFn: async () => assert.fail('permission 403 must not sleep or retry'),
+    }),
+    /GITHUB_API_403:GET:\/forbidden/,
+  )
+  assert.equal(calls, 1)
+})
+
+test('GET reports a long primary-rate-limit wait as a stable rate-limit diagnostic', async () => {
+  await assert.rejects(
+    api('/limited', {
+      fetchImpl: async () =>
+        response(
+          403,
+          { message: 'API rate limit exceeded' },
+          { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '200' },
+        ),
+      sleepFn: async () => assert.fail('long primary reset must yield instead of sleeping'),
+    }),
+    /GITHUB_API_RATE_LIMITED:GET:\/limited/,
+  )
 })
 
 test('GET retries a transient server failure and succeeds without exposing response content', async () => {
