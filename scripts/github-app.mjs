@@ -4,6 +4,7 @@ const API = 'https://api.github.com'
 const REPOSITORY = 'clockcrockwork/note-projects'
 const REPOSITORY_NAME = 'note-projects'
 const GET_ATTEMPTS = 3
+const MAX_RATE_LIMIT_SLEEP_MS = 60_000
 
 function b64url(value) {
   return Buffer.from(value).toString('base64url')
@@ -48,6 +49,57 @@ export function isRetryableGitHubGetStatus(status) {
   return status === 429 || (status >= 500 && status <= 599)
 }
 
+/**
+ * Distinguish GitHub rate-limit 403/429 responses from ordinary permission
+ * failures without exposing response bodies. GitHub documents the response
+ * headers as authoritative for primary limits; secondary limits may instead
+ * provide Retry-After or a fixed error message.
+ *
+ * @param {{status:number, headers?: {get?: (name:string)=>string|null}}} response
+ * @param {string} text
+ * @param {number} [nowMs]
+ * @returns {number|null}
+ */
+export function githubRateLimitDelayMs(response, text, nowMs = Date.now()) {
+  if (response.status !== 403 && response.status !== 429) return null
+
+  const getHeader =
+    typeof response.headers?.get === 'function'
+      ? (name) => response.headers.get(name)
+      : () => null
+
+  const retryAfterRaw = getHeader('retry-after')
+  if (retryAfterRaw !== null) {
+    const retryAfterSeconds = Number(retryAfterRaw)
+    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+      return Math.ceil(retryAfterSeconds * 1000)
+    }
+  }
+
+  const remaining = getHeader('x-ratelimit-remaining')
+  const resetRaw = getHeader('x-ratelimit-reset')
+  if (remaining === '0' && resetRaw !== null) {
+    const resetSeconds = Number(resetRaw)
+    if (Number.isFinite(resetSeconds) && resetSeconds >= 0) {
+      return Math.max(0, Math.ceil(resetSeconds * 1000 - nowMs + 1000))
+    }
+  }
+
+  if (response.status === 429) return 60_000
+
+  try {
+    const message = JSON.parse(text)?.message
+    if (
+      typeof message === 'string' &&
+      /secondary rate limit|rate limit exceeded|rate limit/i.test(message)
+    ) {
+      return 60_000
+    }
+  } catch {}
+
+  return null
+}
+
 export async function api(
   path,
   { token, method = 'GET', body, fetchImpl = fetch, sleepFn = sleep } = {},
@@ -78,6 +130,17 @@ export async function api(
     }
 
     if (!response.ok) {
+      const rateLimitDelay =
+        method === 'GET' ? githubRateLimitDelayMs(response, text) : null
+
+      if (rateLimitDelay !== null) {
+        if (attempt < maxAttempts && rateLimitDelay <= MAX_RATE_LIMIT_SLEEP_MS) {
+          await sleepFn(rateLimitDelay)
+          continue
+        }
+        throw new Error(`GITHUB_API_RATE_LIMITED:${method}:${path}`)
+      }
+
       if (
         method === 'GET' &&
         isRetryableGitHubGetStatus(response.status) &&
