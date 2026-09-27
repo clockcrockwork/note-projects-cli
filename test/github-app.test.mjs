@@ -123,7 +123,10 @@ test('GET reports a long primary-rate-limit wait as a stable rate-limit diagnost
         response(
           403,
           { message: 'API rate limit exceeded' },
-          { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '200' },
+          {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.ceil(Date.now() / 1000) + 120),
+          },
         ),
       sleepFn: async () => assert.fail('long primary reset must yield instead of sleeping'),
     }),
