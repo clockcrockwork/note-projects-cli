@@ -144,12 +144,32 @@ function safePublicTagList(value) {
 
 function safeCheckEvidence(check) {
   const safe = { id: check.id, status: check.status }
-  if (check.id !== 'tags' || !check.detail || typeof check.detail !== 'object') return safe
-  safe.detail = {
-    expected: safePublicTagList(check.detail.expected),
-    observed: safePublicTagList(check.detail.observed),
-    missing: safePublicTagList(check.detail.missing),
-    extra: safePublicTagList(check.detail.extra),
+  if (!check.detail || typeof check.detail !== 'object') return safe
+
+  if (check.id === 'tags') {
+    safe.detail = {
+      expected: safePublicTagList(check.detail.expected),
+      observed: safePublicTagList(check.detail.observed),
+      missing: safePublicTagList(check.detail.missing),
+      extra: safePublicTagList(check.detail.extra),
+    }
+    return safe
+  }
+
+  if (check.id === 'body_edges') {
+    safe.detail = {
+      first_ok: check.detail.first_ok === true,
+      last_ok: check.detail.last_ok === true,
+    }
+    return safe
+  }
+
+  if (check.id === 'free_state') {
+    safe.detail = {
+      paywall_signal_count: Array.isArray(check.detail.paywall_signals)
+        ? check.detail.paywall_signals.length
+        : 0,
+    }
   }
   return safe
 }

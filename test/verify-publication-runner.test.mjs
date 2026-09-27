@@ -64,6 +64,21 @@ test('safeEvidenceFromReport exposes bounded tag delta and strips other details'
           checks: [
             { id: 'title', status: 'PASS', detail: { expected: 'PRIVATE_TITLE' } },
             {
+              id: 'body_edges',
+              status: 'HOLD',
+              detail: {
+                first: 'PRIVATE_FIRST',
+                last: 'PRIVATE_LAST',
+                first_ok: true,
+                last_ok: false,
+              },
+            },
+            {
+              id: 'free_state',
+              status: 'HOLD',
+              detail: { paywall_signals: ['PRIVATE_PAYWALL_PHRASE'] },
+            },
+            {
               id: 'tags',
               status: 'HOLD',
               detail: {
@@ -97,6 +112,8 @@ test('safeEvidenceFromReport exposes bounded tag delta and strips other details'
         retries: 0,
         checks: [
           { id: 'title', status: 'PASS' },
+          { id: 'body_edges', status: 'HOLD', detail: { first_ok: true, last_ok: false } },
+          { id: 'free_state', status: 'HOLD', detail: { paywall_signal_count: 1 } },
           {
             id: 'tags',
             status: 'HOLD',
