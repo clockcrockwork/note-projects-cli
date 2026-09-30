@@ -244,9 +244,11 @@ export function safeFormatChangedSpans(entries, changedPaths) {
   )
 }
 
-export function safeTypecheckFailureDetails(output, changedPaths) {
+export function safeTypecheckFailureDetails(output, changedPaths, exportedPaths = []) {
   const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
+  const exportedIndex = new Map(exportedPaths.map((path, index) => [path, index]))
   const diagnostics = []
+  const unrelatedDiagnostics = []
   let unrelatedCount = 0
   const seen = new Set()
 
@@ -262,6 +264,15 @@ export function safeTypecheckFailureDetails(output, changedPaths) {
     const index = changedIndex.get(path)
     if (index === undefined) {
       unrelatedCount += 1
+      const exportIndex = exportedIndex.get(path)
+      if (exportIndex !== undefined) {
+        unrelatedDiagnostics.push({
+          exported_path_index: exportIndex,
+          line: Number(lineNumber),
+          column: Number(columnNumber),
+          code: Number(code),
+        })
+      }
       continue
     }
 
@@ -278,6 +289,15 @@ export function safeTypecheckFailureDetails(output, changedPaths) {
       .sort(
         (a, b) =>
           a.changed_path_index - b.changed_path_index ||
+          a.line - b.line ||
+          a.column - b.column ||
+          a.code - b.code,
+      )
+      .slice(0, 20),
+    typecheck_unrelated_diagnostics: unrelatedDiagnostics
+      .sort(
+        (a, b) =>
+          a.exported_path_index - b.exported_path_index ||
           a.line - b.line ||
           a.column - b.column ||
           a.code - b.code,
@@ -523,6 +543,7 @@ async function main() {
               ...safeTypecheckFailureDetails(
                 `${isolated.stdout}\n${isolated.stderr}`,
                 resolved.changedPaths,
+                exportPlan.include,
               ),
             }
           }
