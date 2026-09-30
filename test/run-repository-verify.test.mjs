@@ -38,3 +38,14 @@ test('request shape mismatch fails without echoing request body', () => {
   assert.doesNotMatch(child.stdout + child.stderr, new RegExp(sentinel))
   assert.match(child.stdout, /REQUEST_TASK_MISMATCH/)
 })
+
+
+test('repository verifier recognizes the bounded scaler test command', async () => {
+  const source = await readFile(
+    new URL('../scripts/run-repository-verify.mjs', import.meta.url),
+    'utf8',
+  )
+  assert.match(source, /'npm run test:scaler'/)
+  assert.match(source, /\['npm', 'run', 'test:scaler'\]/)
+  assert.match(source, /SCALER_TEST_FAILED/)
+})
