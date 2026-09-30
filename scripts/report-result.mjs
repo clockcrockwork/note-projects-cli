@@ -13,6 +13,7 @@ const MAX_FORMAT_SPANS = 20
 const PUBLIC_COMMANDS = new Set([
   'npm run verify:public',
   'npm run gas:build',
+  'npm run test:scaler',
   'npm test',
   'npm run build:gas',
   'npm run workflow:test',
@@ -128,6 +129,33 @@ export function parseSafeResult(raw) {
       }))
       .slice(0, MAX_FORMAT_SPANS)
   }
+  if (Array.isArray(value.typecheck_unrelated_diagnostics)) {
+    const max = safe.exported_file_count ?? Number.MAX_SAFE_INTEGER
+    safe.typecheck_unrelated_diagnostics = value.typecheck_unrelated_diagnostics
+      .filter(
+        (item) =>
+          item &&
+          Number.isSafeInteger(item.exported_path_index) &&
+          item.exported_path_index >= 0 &&
+          item.exported_path_index < max &&
+          Number.isSafeInteger(item.line) &&
+          item.line >= 1 &&
+          item.line <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.column) &&
+          item.column >= 1 &&
+          item.column <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.code) &&
+          item.code >= 1000 &&
+          item.code <= 99999,
+      )
+      .map((item) => ({
+        exported_path_index: item.exported_path_index,
+        line: item.line,
+        column: item.column,
+        code: item.code,
+      }))
+      .slice(0, MAX_FORMAT_SPANS)
+  }
   if (Number.isSafeInteger(value.typecheck_unrelated_count) && value.typecheck_unrelated_count >= 0) {
     safe.typecheck_unrelated_count = value.typecheck_unrelated_count
   }
@@ -186,6 +214,16 @@ export function formatResultComment(raw, runUrl) {
         .map(
           (item) =>
             `#${item.changed_path_index}@L${item.line}:C${item.column} TS${item.code}`,
+        )
+        .join('; ')}`,
+    )
+  }
+  if (result.typecheck_unrelated_diagnostics?.length) {
+    lines.push(
+      `- unrelated typecheck locations: ${result.typecheck_unrelated_diagnostics
+        .map(
+          (item) =>
+            `export#${item.exported_path_index}@L${item.line}:C${item.column} TS${item.code}`,
         )
         .join('; ')}`,
     )

@@ -118,8 +118,18 @@ test('typecheck diagnostics expose only changed-path indices and numeric TypeScr
     'not a diagnostic',
   ].join('\n')
 
-  assert.deepEqual(safeTypecheckFailureDetails(output, changedPaths), {
-    typecheck_diagnostics: [{ changed_path_index: 1, line: 12, column: 7, code: 2322 }],
-    typecheck_unrelated_count: 1,
-  })
+  assert.deepEqual(
+    safeTypecheckFailureDetails(output, changedPaths, [
+      'package.json',
+      'private/not-changed.mjs',
+      'src/public.mjs',
+    ]),
+    {
+      typecheck_diagnostics: [{ changed_path_index: 1, line: 12, column: 7, code: 2322 }],
+      typecheck_unrelated_diagnostics: [
+        { exported_path_index: 1, line: 4, column: 2, code: 7006 },
+      ],
+      typecheck_unrelated_count: 1,
+    },
+  )
 })

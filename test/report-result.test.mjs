@@ -30,7 +30,7 @@ test('parseSafeResult keeps only reviewed safe fields', () => {
         { changed_path_index: 2, start_line: 0, old_line_count: 1, new_line_count: 1 },
       ],
       format_unrelated_count: 3,
-      public_commands: ['npm run verify:public', 'rm -rf /'],
+      public_commands: ['npm run verify:public', 'npm run test:scaler', 'rm -rf /'],
       qualified_render_required: false,
       stdout: 'PRIVATE_SENTINEL',
       secret: 'should-not-appear',
@@ -55,7 +55,7 @@ test('parseSafeResult keeps only reviewed safe fields', () => {
       },
     ],
     format_unrelated_count: 3,
-    public_commands: ['npm run verify:public'],
+    public_commands: ['npm run verify:public', 'npm run test:scaler'],
     qualified_render_required: false,
   })
 })
