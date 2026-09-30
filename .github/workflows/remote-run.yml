@@ -26,6 +26,8 @@ jobs:
           cache: ''
       - id: parse
         shell: bash
+        env:
+          TRUSTED_DISPATCH_BOT_LOGIN: ${{ vars.TRUSTED_DISPATCH_BOT_LOGIN }}
         run: |
           set -euo pipefail
           request_json="$(node scripts/parse-request.mjs "$GITHUB_EVENT_PATH")"
