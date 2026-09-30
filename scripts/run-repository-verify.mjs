@@ -28,7 +28,11 @@ const SAFE_COMMANDS = new Map([
         diagnostic: 'PUBLIC_TYPECHECK_FAILED',
         captureTypeDiagnostics: true,
       },
-      { argv: ['npm', 'run', 'test:public'], diagnostic: 'PUBLIC_TEST_FAILED' },
+      {
+        argv: ['npm', 'run', 'test:public'],
+        diagnostic: 'PUBLIC_TEST_FAILED',
+        captureTestDiagnostics: true,
+      },
     ],
   ],
   [
@@ -307,6 +311,65 @@ export function safeTypecheckFailureDetails(output, changedPaths, exportedPaths 
   }
 }
 
+export function safePlaywrightFailureDetails(output, changedPaths, exportedPaths = []) {
+  const changedIndex = new Map(changedPaths.map((path, index) => [path, index]))
+  const exportedIndex = new Map(exportedPaths.map((path, index) => [path, index]))
+  const diagnostics = []
+  const unrelatedDiagnostics = []
+  let unrelatedCount = 0
+  const seen = new Set()
+
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^\.\//, '')
+    const match = line.match(/(?:^|\s)((?:[^\s›]+\/)*[^\s›:]+\.spec\.mjs):(\d+):(\d+)\s+›/)
+    if (!match) continue
+    const [, path, lineNumber, columnNumber] = match
+    const key = `${path}:${lineNumber}:${columnNumber}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const changedPathIndex = changedIndex.get(path)
+    if (changedPathIndex !== undefined) {
+      diagnostics.push({
+        changed_path_index: changedPathIndex,
+        line: Number(lineNumber),
+        column: Number(columnNumber),
+      })
+      continue
+    }
+
+    unrelatedCount += 1
+    const exportedPathIndex = exportedIndex.get(path)
+    if (exportedPathIndex !== undefined) {
+      unrelatedDiagnostics.push({
+        exported_path_index: exportedPathIndex,
+        line: Number(lineNumber),
+        column: Number(columnNumber),
+      })
+    }
+  }
+
+  return {
+    test_diagnostics: diagnostics
+      .sort(
+        (a, b) =>
+          a.changed_path_index - b.changed_path_index ||
+          a.line - b.line ||
+          a.column - b.column,
+      )
+      .slice(0, 20),
+    test_unrelated_diagnostics: unrelatedDiagnostics
+      .sort(
+        (a, b) =>
+          a.exported_path_index - b.exported_path_index ||
+          a.line - b.line ||
+          a.column - b.column,
+      )
+      .slice(0, 20),
+    test_unrelated_count: unrelatedCount,
+  }
+}
+
 export function typecheckFailureIsBaselineOnly(output, details) {
   const uniqueDiagnostics = new Set()
   let unparsedTypeScriptError = false
@@ -525,6 +588,12 @@ async function main() {
       throw new Error(exportPlan?.diagnostic || 'SOURCE_EXPORT_UNSAFE_ENTRY')
     }
 
+    safeFailureDetails = {
+      ...safeFailureDetails,
+      changed_path_count: resolved.changedPaths.length,
+      exported_file_count: exportPlan.include.length,
+    }
+
     phase = 'EXPORT_FETCH'
     const entryByPath = new Map(listing.tree.map((entry) => [entry.path, entry]))
     for (const path of exportPlan.include) {
@@ -576,6 +645,16 @@ async function main() {
                 `repository-verify baseline-only typecheck debt=${typecheckDetails.typecheck_unrelated_count}\n`,
               )
               continue
+            }
+          }
+          if (stage.captureTestDiagnostics) {
+            safeFailureDetails = {
+              ...safeFailureDetails,
+              ...safePlaywrightFailureDetails(
+                `${isolated.stdout}\n${isolated.stderr}`,
+                resolved.changedPaths,
+                exportPlan.include,
+              ),
             }
           }
           if (stage.captureFormatPaths) {
