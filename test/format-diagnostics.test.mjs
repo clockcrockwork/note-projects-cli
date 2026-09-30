@@ -9,6 +9,7 @@ import {
   safeLineChangeSpan,
   safeLineChangeSpans,
   safeTypecheckFailureDetails,
+  safePlaywrightFailureDetails,
   typecheckFailureIsBaselineOnly,
 } from '../scripts/run-repository-verify.mjs'
 
@@ -168,4 +169,41 @@ test('unparsed TypeScript errors fail closed instead of being called baseline de
   ])
 
   assert.equal(typecheckFailureIsBaselineOnly(output, details), false)
+})
+
+
+test('playwright diagnostics expose only numeric changed/exported path locations', () => {
+  const output = [
+    '  1) tests/changed.spec.mjs:12:7 › private title',
+    '  2) tests/existing.spec.mjs:44:3 › another private title',
+    '  2) tests/existing.spec.mjs:44:3 › duplicate',
+  ].join('\n')
+
+  assert.deepEqual(
+    safePlaywrightFailureDetails(
+      output,
+      ['tools/change.mjs', 'tests/changed.spec.mjs'],
+      ['package.json', 'tests/changed.spec.mjs', 'tests/existing.spec.mjs'],
+    ),
+    {
+      test_diagnostics: [{ changed_path_index: 1, line: 12, column: 7 }],
+      test_unrelated_diagnostics: [{ exported_path_index: 2, line: 44, column: 3 }],
+      test_unrelated_count: 1,
+    },
+  )
+})
+
+test('playwright diagnostics ignore arbitrary output and test titles', () => {
+  assert.deepEqual(
+    safePlaywrightFailureDetails(
+      'Error: PRIVATE_SENTINEL\nnot a location\n',
+      ['tests/changed.spec.mjs'],
+      ['tests/changed.spec.mjs'],
+    ),
+    {
+      test_diagnostics: [],
+      test_unrelated_diagnostics: [],
+      test_unrelated_count: 0,
+    },
+  )
 })
