@@ -35,6 +35,10 @@ const SAFE_COMMANDS = new Map([
     'npm run gas:build',
     [{ argv: ['npm', 'run', 'gas:build'], diagnostic: 'GAS_BUILD_FAILED' }],
   ],
+  [
+    'npm run test:scaler',
+    [{ argv: ['npm', 'run', 'test:scaler'], diagnostic: 'SCALER_TEST_FAILED' }],
+  ],
 ])
 
 const MAX_LINE_DIFF_INPUT = 2000
