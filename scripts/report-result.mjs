@@ -159,6 +159,55 @@ export function parseSafeResult(raw) {
   if (Number.isSafeInteger(value.typecheck_unrelated_count) && value.typecheck_unrelated_count >= 0) {
     safe.typecheck_unrelated_count = value.typecheck_unrelated_count
   }
+  if (Array.isArray(value.test_diagnostics)) {
+    const max = safe.changed_path_count ?? Number.MAX_SAFE_INTEGER
+    safe.test_diagnostics = value.test_diagnostics
+      .filter(
+        (item) =>
+          item &&
+          Number.isSafeInteger(item.changed_path_index) &&
+          item.changed_path_index >= 0 &&
+          item.changed_path_index < max &&
+          Number.isSafeInteger(item.line) &&
+          item.line >= 1 &&
+          item.line <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.column) &&
+          item.column >= 1 &&
+          item.column <= MAX_SAFE_LINE_NUMBER,
+      )
+      .map((item) => ({
+        changed_path_index: item.changed_path_index,
+        line: item.line,
+        column: item.column,
+      }))
+      .slice(0, MAX_FORMAT_SPANS)
+  }
+  if (Array.isArray(value.test_unrelated_diagnostics)) {
+    const max = safe.exported_file_count ?? Number.MAX_SAFE_INTEGER
+    safe.test_unrelated_diagnostics = value.test_unrelated_diagnostics
+      .filter(
+        (item) =>
+          item &&
+          Number.isSafeInteger(item.exported_path_index) &&
+          item.exported_path_index >= 0 &&
+          item.exported_path_index < max &&
+          Number.isSafeInteger(item.line) &&
+          item.line >= 1 &&
+          item.line <= MAX_SAFE_LINE_NUMBER &&
+          Number.isSafeInteger(item.column) &&
+          item.column >= 1 &&
+          item.column <= MAX_SAFE_LINE_NUMBER,
+      )
+      .map((item) => ({
+        exported_path_index: item.exported_path_index,
+        line: item.line,
+        column: item.column,
+      }))
+      .slice(0, MAX_FORMAT_SPANS)
+  }
+  if (Number.isSafeInteger(value.test_unrelated_count) && value.test_unrelated_count >= 0) {
+    safe.test_unrelated_count = value.test_unrelated_count
+  }
   if (Array.isArray(value.public_commands)) {
     safe.public_commands = value.public_commands.filter((item) => PUBLIC_COMMANDS.has(item))
   }
@@ -230,6 +279,23 @@ export function formatResultComment(raw, runUrl) {
   }
   if (result.typecheck_unrelated_count !== undefined) {
     lines.push(`- unrelated typecheck diagnostics: ${result.typecheck_unrelated_count}`)
+  }
+  if (result.test_diagnostics?.length) {
+    lines.push(
+      `- public test diagnostics: ${result.test_diagnostics
+        .map((item) => `#${item.changed_path_index}@L${item.line}:C${item.column}`)
+        .join('; ')}`,
+    )
+  }
+  if (result.test_unrelated_diagnostics?.length) {
+    lines.push(
+      `- unrelated public test locations: ${result.test_unrelated_diagnostics
+        .map((item) => `export#${item.exported_path_index}@L${item.line}:C${item.column}`)
+        .join('; ')}`,
+    )
+  }
+  if (result.test_unrelated_count !== undefined) {
+    lines.push(`- unrelated public test failures: ${result.test_unrelated_count}`)
   }
   if (result.public_commands?.length) {
     lines.push(`- public commands: ${result.public_commands.map(code).join(', ')}`)

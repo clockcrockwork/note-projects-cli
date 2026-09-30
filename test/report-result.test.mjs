@@ -256,3 +256,22 @@ test('publishResult does not close the request issue when durable result comment
   assert.equal(calls.length, 1)
   assert.equal(calls[0].options.method, 'POST')
 })
+
+
+test('repository result reports sanitized public test locations without names', () => {
+  const raw = JSON.stringify({
+    task: 'repository-verify',
+    status: 'FAIL',
+    diagnostic: 'PUBLIC_TEST_FAILED',
+    changed_path_count: 3,
+    exported_file_count: 10,
+    test_diagnostics: [{ changed_path_index: 1, line: 12, column: 7 }],
+    test_unrelated_diagnostics: [{ exported_path_index: 8, line: 44, column: 3 }],
+    test_unrelated_count: 1,
+  })
+  const body = formatResultComment(raw, '')
+  assert.match(body, /public test diagnostics: #1@L12:C7/)
+  assert.match(body, /unrelated public test locations: export#8@L44:C3/)
+  assert.match(body, /unrelated public test failures: 1/)
+  assert.doesNotMatch(body, /PRIVATE_SENTINEL/)
+})
