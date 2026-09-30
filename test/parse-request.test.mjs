@@ -53,3 +53,67 @@ test('rejects duplicate and unexpected headings', () => {
   assert.throws(() => parseIssueFormBody(`${body()}\n\n### Task\n\nrepository-verify`), /FIELD_DUPLICATE/)
   assert.throws(() => parseIssueFormBody(`${body()}\n\n### Command\n\nrm -rf /`), /FIELD_UNEXPECTED/)
 })
+
+
+test('accepts only the configured GitHub App bot as machine dispatcher', () => {
+  const event = {
+    action: 'opened',
+    issue: {
+      author_association: 'NONE',
+      user: { login: 'clockcrockwork-public-dispatch[bot]', type: 'Bot' },
+      body: body(),
+    },
+  }
+
+  assert.deepEqual(
+    authorizeEvent(event, { trustedBotLogin: 'clockcrockwork-public-dispatch[bot]' }),
+    {
+      task: 'repository-verify',
+      target: null,
+      source: 'pull_request',
+      pull_request: 245,
+    },
+  )
+
+  assert.throws(
+    () => authorizeEvent(event, { trustedBotLogin: 'some-other-app[bot]' }),
+    /REQUEST_NOT_OWNER/,
+  )
+})
+
+test('machine dispatcher authorization fails closed for empty config or non-Bot users', () => {
+  const baseIssue = {
+    author_association: 'NONE',
+    body: body(),
+  }
+
+  assert.throws(
+    () =>
+      authorizeEvent(
+        {
+          action: 'opened',
+          issue: {
+            ...baseIssue,
+            user: { login: 'clockcrockwork-public-dispatch[bot]', type: 'Bot' },
+          },
+        },
+        { trustedBotLogin: '' },
+      ),
+    /REQUEST_NOT_OWNER/,
+  )
+
+  assert.throws(
+    () =>
+      authorizeEvent(
+        {
+          action: 'opened',
+          issue: {
+            ...baseIssue,
+            user: { login: 'clockcrockwork-public-dispatch[bot]', type: 'User' },
+          },
+        },
+        { trustedBotLogin: 'clockcrockwork-public-dispatch[bot]' },
+      ),
+    /REQUEST_NOT_OWNER/,
+  )
+})
