@@ -9,6 +9,7 @@ import {
   safeLineChangeSpan,
   safeLineChangeSpans,
   safeTypecheckFailureDetails,
+  typecheckFailureIsBaselineOnly,
 } from '../scripts/run-repository-verify.mjs'
 
 test('prettier list-different output is normalized without exposing content', () => {
@@ -132,4 +133,39 @@ test('typecheck diagnostics expose only changed-path indices and numeric TypeScr
       typecheck_unrelated_count: 1,
     },
   )
+})
+
+
+test('baseline-only parsed TypeScript diagnostics do not block an unrelated PR', () => {
+  const output = [
+    'src/preexisting-a.mjs(4,2): error TS7006: PRIVATE_SENTINEL',
+    'tools/preexisting-b.mjs(8,3): error TS2322: PRIVATE_SENTINEL',
+  ].join('\n')
+  const details = safeTypecheckFailureDetails(output, ['infra/new-change.mjs'], [
+    'src/preexisting-a.mjs',
+    'tools/preexisting-b.mjs',
+  ])
+
+  assert.equal(typecheckFailureIsBaselineOnly(output, details), true)
+})
+
+test('changed-path TypeScript diagnostics still block the PR', () => {
+  const output = 'infra/new-change.mjs(4,2): error TS7006: PRIVATE_SENTINEL'
+  const details = safeTypecheckFailureDetails(output, ['infra/new-change.mjs'], [
+    'infra/new-change.mjs',
+  ])
+
+  assert.equal(typecheckFailureIsBaselineOnly(output, details), false)
+})
+
+test('unparsed TypeScript errors fail closed instead of being called baseline debt', () => {
+  const output = [
+    'src/preexisting.mjs(4,2): error TS7006: PRIVATE_SENTINEL',
+    'error TS6053: File PRIVATE_SENTINEL not found.',
+  ].join('\n')
+  const details = safeTypecheckFailureDetails(output, ['infra/new-change.mjs'], [
+    'src/preexisting.mjs',
+  ])
+
+  assert.equal(typecheckFailureIsBaselineOnly(output, details), false)
 })

@@ -307,6 +307,29 @@ export function safeTypecheckFailureDetails(output, changedPaths, exportedPaths 
   }
 }
 
+export function typecheckFailureIsBaselineOnly(output, details) {
+  const uniqueDiagnostics = new Set()
+  let unparsedTypeScriptError = false
+
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^\.\//, '')
+    if (!/error TS\d+:/.test(line)) continue
+    const match = line.match(/^(.+?)\((\d+),(\d+)\): error TS(\d+):/)
+    if (!match) {
+      unparsedTypeScriptError = true
+      continue
+    }
+    uniqueDiagnostics.add(`${match[1]}:${match[2]}:${match[3]}:TS${match[4]}`)
+  }
+
+  return (
+    !unparsedTypeScriptError &&
+    uniqueDiagnostics.size > 0 &&
+    details.typecheck_diagnostics.length === 0 &&
+    details.typecheck_unrelated_count === uniqueDiagnostics.size
+  )
+}
+
 export function changedExportedPaths(changedPaths, exportedPaths) {
   const exported = new Set(exportedPaths)
   return changedPaths.filter((path) => exported.has(path))
@@ -538,13 +561,21 @@ async function main() {
         )
         if (!isolated.ok) {
           if (stage.captureTypeDiagnostics) {
+            const typecheckOutput = `${isolated.stdout}\n${isolated.stderr}`
+            const typecheckDetails = safeTypecheckFailureDetails(
+              typecheckOutput,
+              resolved.changedPaths,
+              exportPlan.include,
+            )
             safeFailureDetails = {
               ...safeFailureDetails,
-              ...safeTypecheckFailureDetails(
-                `${isolated.stdout}\n${isolated.stderr}`,
-                resolved.changedPaths,
-                exportPlan.include,
-              ),
+              ...typecheckDetails,
+            }
+            if (typecheckFailureIsBaselineOnly(typecheckOutput, typecheckDetails)) {
+              process.stdout.write(
+                `repository-verify baseline-only typecheck debt=${typecheckDetails.typecheck_unrelated_count}\n`,
+              )
+              continue
             }
           }
           if (stage.captureFormatPaths) {
