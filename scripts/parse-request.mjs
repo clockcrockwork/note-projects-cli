@@ -68,9 +68,20 @@ export function parseIssueFormBody(body) {
   return { task, target, source, pull_request: pullRequest }
 }
 
-export function authorizeEvent(event) {
+export function authorizeEvent(
+  event,
+  { trustedBotLogin = process.env.TRUSTED_DISPATCH_BOT_LOGIN } = {},
+) {
   if (!event || event.action === undefined || !event.issue) throw new Error('REQUEST_EVENT_INVALID')
-  if (event.issue.author_association !== 'OWNER') throw new Error('REQUEST_NOT_OWNER')
+
+  const owner = event.issue.author_association === 'OWNER'
+  const configuredBot = normalized(trustedBotLogin)
+  const trustedBot =
+    configuredBot !== '' &&
+    event.issue.user?.type === 'Bot' &&
+    event.issue.user?.login === configuredBot
+
+  if (!owner && !trustedBot) throw new Error('REQUEST_NOT_OWNER')
   return parseIssueFormBody(event.issue.body)
 }
 
