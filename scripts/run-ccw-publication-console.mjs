@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { isApprovedPatreonSvgMedia } from './patreon-svg-media.mjs'
 import {
   api,
   fetchBlob,
@@ -62,7 +63,7 @@ async function writeSafe(root, path, bytes) {
   await writeFile(destination, bytes)
 }
 
-function sourcePaths(listing) {
+export function sourcePaths(listing) {
   const allowed = (listing?.tree ?? [])
     .filter((entry) => entry?.type === 'blob' && typeof entry.path === 'string')
     .map((entry) => entry.path)
@@ -75,6 +76,7 @@ function sourcePaths(listing) {
       path === 'tools/workflow/note-creator-review-gate.mjs' ||
       /^content\/publications\/[^/]+\.md$/.test(path) ||
       /^content\/note-jp\/[^/]+\.md$/.test(path) ||
+      isApprovedPatreonSvgMedia(path) ||
       /^media\/note-jp\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path) ||
       /^covers\/media\/public-ready\/.+\.(?:png|jpe?g|webp|gif)$/i.test(path),
     )
