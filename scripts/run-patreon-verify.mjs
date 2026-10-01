@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { isApprovedPatreonSvgMedia } from './patreon-svg-media.mjs'
 import {
   fetchBlob,
   fetchTextFile,
@@ -146,6 +147,7 @@ export function isSafePatreonRepositoryPath(path) {
 }
 
 export function isExportablePatreonPath(path) {
+  if (isApprovedPatreonSvgMedia(path)) return true
   if (path === 'package.json' || path === 'package-lock.json') return true
   if (ROOT_CANONICALS.has(path)) return true
   if (SOURCE_ROOTS.some((root) => path.startsWith(root))) {
@@ -194,12 +196,13 @@ export function planPatreonExport(listing) {
   return include.sort((a, b) => a.path.localeCompare(b.path))
 }
 
-function requiresMachineVerification(changedPaths) {
+export function requiresMachineVerification(changedPaths) {
   return changedPaths.some(
     (path) =>
       path === 'package.json' ||
       path === 'package-lock.json' ||
       ROOT_CANONICALS.has(path) ||
+      isApprovedPatreonSvgMedia(path) ||
       SOURCE_ROOTS.some((root) => path.startsWith(root)) ||
       path.startsWith(TOKEI_NOTE_BRAND_ROOT) ||
       path.startsWith(PUBLIC_READY_COVER_ROOT),
