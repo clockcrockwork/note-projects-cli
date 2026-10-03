@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 import {
   fetchBlob,
   fetchTextFile,
@@ -318,11 +319,47 @@ export function safePlaywrightFailureDetails(output, changedPaths, exportedPaths
   const unrelatedDiagnostics = []
   let unrelatedCount = 0
   const seen = new Set()
+  const failureLocations = []
+  const summaryLocations = []
+  let hasSummary = false
+  let summaryFailuresRemaining = 0
 
   for (const rawLine of String(output).split(/\r?\n/)) {
-    const line = rawLine.trim().replace(/^\.\//, '')
-    const match = line.match(/(?:^|\s)((?:[^\s›]+\/)*[^\s›:]+\.spec\.mjs):(\d+):(\d+)\s+›/)
+    const line = stripVTControlCharacters(rawLine)
+    const summary = line.match(
+      /^ {2}(\d+) (failed|interrupted|flaky|skipped|did not run|passed)(?: \([^)]*\))?\s*$/,
+    )
+    if (summary) {
+      hasSummary = true
+      summaryFailuresRemaining = summary[2] === 'failed' ? Number(summary[1]) : 0
+      continue
+    }
+
+    // A final summary distinguishes failures from expected failures and retries
+    // that passed. Before it arrives, accept only explicit failure rows/headers.
+    let candidate = line.trim()
+    if (hasSummary) {
+      // Count all summary headers, even unsupported file types, and allow title
+      // continuations between them without mistaking later output for failures.
+      if (
+        summaryFailuresRemaining === 0 ||
+        !/^ {4}(?:\[.*?\]\s+›\s+)?[^›]+:\d+:\d+\s+›/.test(line)
+      ) continue
+      summaryFailuresRemaining -= 1
+    } else {
+      const failurePrefix = /^(?:[✘x]\s+\d+\s+|\d+\)\s+)/
+      if (!failurePrefix.test(candidate)) continue
+      candidate = candidate.replace(failurePrefix, '')
+    }
+    const match = candidate.match(
+      /^(?:\[.*?\]\s+›\s+)?(?:\.\/)?((?:[^\s›]+\/)*[^\s›:]+\.spec\.mjs):(\d+):(\d+)\s+›/,
+    )
     if (!match) continue
+    if (hasSummary) summaryLocations.push(match)
+    else failureLocations.push(match)
+  }
+
+  for (const match of hasSummary ? summaryLocations : failureLocations) {
     const [, path, lineNumber, columnNumber] = match
     const key = `${path}:${lineNumber}:${columnNumber}`
     if (seen.has(key)) continue
