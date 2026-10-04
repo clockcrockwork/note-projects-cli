@@ -39,6 +39,17 @@ export function classifyConsoleBuildFailure(build) {
 
   const combined = `${build?.stdout ?? ''}\n${build?.stderr ?? ''}`
   const rules = [
+    [/ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)/i, 'PUBLICATION_CONSOLE_MODULE_MISSING'],
+    [/ENOENT|no such file or directory/i, 'PUBLICATION_CONSOLE_INPUT_FILE_MISSING'],
+    [/EACCES|permission denied/i, 'PUBLICATION_CONSOLE_FILESYSTEM_DENIED'],
+    [/ERR_STRING_TOO_LONG|Invalid string length|heap out of memory/i, 'PUBLICATION_CONSOLE_OUTPUT_TOO_LARGE'],
+    [/YAML root must be a mapping/i, 'PUBLICATION_CONSOLE_SOURCE_ROOT_INVALID'],
+    [/Excessive alias count|alias resolution/i, 'PUBLICATION_CONSOLE_SOURCE_ALIAS_REJECTED'],
+    [/configured feeder_contract does not exist/i, 'PUBLICATION_CONSOLE_FEEDER_CONTRACT_MISSING'],
+    [/escaped repository root/i, 'PUBLICATION_CONSOLE_INPUT_PATH_REJECTED'],
+    [/must be a non-empty string/i, 'PUBLICATION_CONSOLE_REQUIRED_FIELD_MISSING'],
+    [/TypeError:/i, 'PUBLICATION_CONSOLE_BUILD_TYPE_ERROR'],
+    [/SyntaxError:/i, 'PUBLICATION_CONSOLE_BUILD_SYNTAX_ERROR'],
     [/invalid YAML/i, 'PUBLICATION_CONSOLE_SOURCE_YAML_INVALID'],
     [/reference links cannot be materialized deterministically/i, 'PUBLICATION_CONSOLE_REFERENCE_LINKS_AMBIGUOUS'],
     [/CTA link text is present but cannot be materialized deterministically/i, 'PUBLICATION_CONSOLE_CTA_LINK_AMBIGUOUS'],
