@@ -115,3 +115,25 @@ test('build failure classifier emits only stable non-sensitive diagnostics', () 
   )
 })
 
+
+test('unclassified private build errors become bounded codes without private text', () => {
+  const cases = [
+    ['Error [ERR_MODULE_NOT_FOUND]: Cannot find package private-name', 'PUBLICATION_CONSOLE_MODULE_MISSING'],
+    ['ENOENT: no such file or directory, open /workspace/private/body.md', 'PUBLICATION_CONSOLE_INPUT_FILE_MISSING'],
+    ['EACCES: permission denied, open /workspace/private/body.md', 'PUBLICATION_CONSOLE_FILESYSTEM_DENIED'],
+    ['RangeError: Invalid string length: private content', 'PUBLICATION_CONSOLE_OUTPUT_TOO_LARGE'],
+    ['private/publication.yaml: YAML root must be a mapping.', 'PUBLICATION_CONSOLE_SOURCE_ROOT_INVALID'],
+    ['TypeError: private value is not iterable', 'PUBLICATION_CONSOLE_BUILD_TYPE_ERROR'],
+    ['SyntaxError: private source token', 'PUBLICATION_CONSOLE_BUILD_SYNTAX_ERROR'],
+  ]
+  for (const [stderr, expected] of cases) {
+    const diagnostic = classifyConsoleBuildFailure({ status: 1, signal: null, stdout: '', stderr })
+    assert.equal(diagnostic, expected)
+    assert.deepEqual(safePublicResult({ status: 'FAIL', diagnostic, stderr }), {
+      schema_version: 1,
+      task: 'bosho0l-publication-console',
+      status: 'FAIL',
+      diagnostic: expected,
+    })
+  }
+})
