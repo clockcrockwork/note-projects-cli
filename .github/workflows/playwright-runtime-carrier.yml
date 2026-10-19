@@ -110,8 +110,17 @@ jobs:
           RUNNER_LABEL: ubuntu-24.04
         run: node scripts/playwright-runtime-manifest.mjs "$RUNNER_TEMP/playwright-runtime-manifest.json"
 
+      # GitHub expression equality ignores case; Bash keeps this ref check exact.
+      - name: Check exact trusted-main upload scope
+        id: runtime_upload_policy
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$GITHUB_REF" == 'refs/heads/main' ]]; then
+            echo 'upload=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload runtime payload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success() && steps.runtime_upload_policy.outputs.upload == 'true'
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: |
