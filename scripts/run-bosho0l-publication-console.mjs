@@ -96,6 +96,13 @@ function runCaptured(argv, { cwd, timeout = 15 * 60_000, env = process.env } = {
   }
 }
 
+function hostDockerUser() {
+  if (typeof process.getuid !== 'function' || typeof process.getgid !== 'function') {
+    throw new Error('HOST_UID_GID_UNAVAILABLE')
+  }
+  return `${process.getuid()}:${process.getgid()}`
+}
+
 function safeResolvedPath(root, path) {
   const destination = resolve(root, path)
   const prefix = resolve(root) + sep
@@ -493,6 +500,8 @@ async function main() {
         'no-new-privileges',
         '--pids-limit',
         '512',
+        '--user',
+        hostDockerUser(),
         '-e',
         'CI=1',
         '-e',
