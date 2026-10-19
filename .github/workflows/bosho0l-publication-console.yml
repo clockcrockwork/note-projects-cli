@@ -1,13 +1,7 @@
 name: bosho0l publication console
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - requests/bosho0l-publication-console.json
 
 permissions: {}
 

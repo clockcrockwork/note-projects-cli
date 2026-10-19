@@ -61,13 +61,13 @@ test('public result never exposes protected URL or private inventory detail', ()
   )
 })
 
-test('workflow refreshes on a bounded cadence and request-file merge', async () => {
+test('workflow runs only on explicit manual dispatch', async () => {
   const workflow = await readFile(
     new URL('../.github/workflows/bosho0l-publication-console.yml', import.meta.url),
     'utf8',
   )
-  assert.match(workflow, /cron: '\*\/15 \* \* \* \*'/)
-  assert.match(workflow, /requests\/bosho0l-publication-console\.json/)
+  const triggers = workflow.match(/^on:\n([\s\S]*?)(?=^\S)/m)?.[1]
+  assert.equal(triggers?.trim(), 'workflow_dispatch:')
   assert.match(workflow, /runs-on: ubuntu-latest/)
   assert.match(workflow, /environment: private-source-read/)
   assert.match(workflow, /run: node scripts\/run-bosho0l-publication-console\.mjs/)
