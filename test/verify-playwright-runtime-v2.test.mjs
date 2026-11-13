@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { findBrowserRevisions, inspectRuntime } from '../scripts/verify-playwright-runtime-v2.mjs'
@@ -14,4 +14,17 @@ test('runtime inspection requires an executable, executable mode, and nonzero ha
   await mkdir(join(file, '..'), { recursive: true }); await writeFile(file, 'fixture'); await chmod(file, 0o755)
   const result = inspectRuntime(root, { key: 'chromium', directoryPrefix: 'chromium-', executableNames: new Set(['chrome']) }, '1243')
   assert.equal(result.directory, 'chromium-1243'); assert.equal(result.executable_mode, '755'); assert.equal(result.executable_size, 7); assert.match(result.executable_sha256, /^[0-9a-f]{64}$/)
+})
+
+test('runtime inspection rejects a non-executable browser file', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'pw-v2-mode-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'chromium-1243', 'chrome-linux64', 'chrome')
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(file, 'fixture')
+  await chmod(file, 0o644)
+  assert.throws(
+    () => inspectRuntime(root, { key: 'chromium', directoryPrefix: 'chromium-', executableNames: new Set(['chrome']) }, '1243'),
+    /RUNTIME_V2_EXECUTABLE_MODE_MISSING_chromium/,
+  )
 })
