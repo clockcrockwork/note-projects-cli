@@ -28,3 +28,16 @@ test('runtime inspection rejects a non-executable browser file', async (t) => {
     /RUNTIME_V2_EXECUTABLE_MODE_MISSING_chromium/,
   )
 })
+
+test('runtime inspection rejects an empty executable browser file', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'pw-v2-empty-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'chromium-1243', 'chrome-linux64', 'chrome')
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(file, '')
+  await chmod(file, 0o755)
+  assert.throws(
+    () => inspectRuntime(root, { key: 'chromium', directoryPrefix: 'chromium-', executableNames: new Set(['chrome']) }, '1243'),
+    /RUNTIME_V2_EXECUTABLE_EMPTY_chromium/,
+  )
+})
